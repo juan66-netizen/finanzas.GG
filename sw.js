@@ -1,7 +1,8 @@
 // Guarda la app en caché para que funcione sin internet.
 // Sube VERSION cada vez que cambies index.html para que el iPhone tome la nueva versión.
-const VERSION = 'finanzas-v8';
-const FILES = ['./', './index.html', './manifest.webmanifest', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
+const VERSION = 'finanzas-v9';
+// Si cambias el ícono, ponle un nombre de archivo nuevo: Safari guarda en caché el anterior.
+const FILES = ['./', './index.html', './manifest.webmanifest', './icons/negro-180.png', './icons/negro-192.png', './icons/negro-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
