@@ -1,6 +1,6 @@
 // Guarda la app en caché para que funcione sin internet.
 // Sube VERSION cada vez que cambies index.html para que el iPhone tome la nueva versión.
-const VERSION = 'finanzas-v6';
+const VERSION = 'finanzas-v7';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => {

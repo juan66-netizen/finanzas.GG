@@ -373,6 +373,7 @@ function normalize(s) {
     recs: Array.isArray(s.recs) ? s.recs : [],
     goals: Array.isArray(s.goals) ? s.goals : [],
     currency: s.currency || 'EUR',
+    lastBackup: s.lastBackup || null,
   };
 }
 
@@ -525,6 +526,7 @@ let curMonth = monthOf(today());
 let txFilter = 'all';
 let txMode = 'hist';
 let period = 'month';
+let backupSnoozed = false;   // ocultar el recordatorio de respaldo hasta la próxima apertura
 try { if (localStorage.getItem(STORE + '-period') === 'year') period = 'year'; } catch {}
 const TITLES = { home: 'Inicio', tx: 'Movimientos', goals: 'Metas', settings: 'Ajustes' };
 
@@ -592,6 +594,17 @@ function renderHome() {
       yearMode && elapsed ? `<span>Gasto promedio: <b>${esc(money(t.exp / elapsed))}</b>/mes</span>` : ''}${
       t.bal < 0 ? '<span class="neg">⚠ Gastaste más de lo que ingresó</span>' : ''}</div>
   </div>`;
+
+  // Recordatorio de respaldo (si hay datos y hace más de 30 días, o nunca)
+  const bd = backupDays();
+  if (!backupSnoozed && state.txs.length >= 5 && (bd === null || bd > 30)) {
+    h += `<div class="card" style="display:flex;align-items:center;gap:12px;border-color:rgba(250,178,25,.35)">
+      <span style="font-size:26px">💾</span>
+      <div style="flex:1;min-width:0"><b>Haz un respaldo</b><div class="muted" style="font-size:13px">Último: ${esc(backupAge().toLowerCase())}. Tarda 10 segundos.</div></div>
+      <button class="btn primary" style="min-height:40px;padding:0 14px" id="exp-json">Hacer</button>
+      <button class="del" id="snooze-backup" aria-label="Recordar más tarde">✕</button>
+    </div>`;
+  }
 
   // Próximos recurrentes de este mes
   if (!yearMode && isCur) {
@@ -885,10 +898,10 @@ function renderSettings() {
   h += `<button class="row-set accent" id="add-cat">+ Nueva categoría</button></div>`;
 
   h += `<div class="set-h">Respaldo</div><div class="list">
-    <button class="row-set accent" id="exp-json">Guardar respaldo</button>
-    <button class="row-set accent" id="exp-csv">Exportar a Excel (CSV)</button>
-    <label class="row-set" style="cursor:pointer"><span style="color:var(--link)">Restaurar respaldo</span><input type="file" id="imp-json" accept=".json,application/json" hidden></label>
-  </div><div class="set-f">Tus datos viven solo en este dispositivo. Guarda un respaldo de vez en cuando (en Archivos o iCloud).${pinOn ? ' El respaldo no va cifrado: guárdalo en un lugar seguro.' : ''}</div>`;
+    <button class="row-set accent" id="exp-json" style="display:flex"><span>💾 Guardar respaldo</span><span class="muted" style="font-size:14px">${esc(backupAge())}</span></button>
+    <button class="row-set accent" id="imp-open">♻️ Restaurar respaldo</button>
+    <button class="row-set accent" id="exp-csv">📊 Exportar a Excel (CSV)</button>
+  </div><div class="set-f">Tus datos se guardan solos en este iPhone. El respaldo es una copia para no perderlos si borras la app o cambias de teléfono.${pinOn ? ' El archivo de respaldo no va cifrado: guárdalo en tu iCloud personal.' : ''}</div>`;
 
   h += `<div class="set-h">Datos</div><div class="list">
     <button class="row-set accent" id="demo">Cargar datos de ejemplo</button>
@@ -1409,7 +1422,9 @@ document.querySelector('main').addEventListener('click', e => {
     case 'pin-change': return openLock('verify', { onDone: () => openLock('set') });
     case 'pin-off': return openLock('verify', { onDone: async () => { cryptoKey = null; kdf = null; await save(); render(); toast('PIN desactivado'); } });
     case 'add-cat': return openCatSheet();
-    case 'exp-json': return shareFile(`finanzas-respaldo-${today()}.json`, JSON.stringify(state, null, 2), 'application/json');
+    case 'exp-json': return openBackupSheet();
+    case 'snooze-backup': backupSnoozed = true; return render();
+    case 'imp-open': return openRestoreSheet();
     case 'exp-csv': return exportCsv();
     case 'demo': return loadDemo();
     case 'wipe':
@@ -1425,16 +1440,6 @@ document.querySelector('main').addEventListener('change', async e => {
     const v = parseAmount(e.target.value);
     state.cats[+e.target.dataset.budget].budget = v > 0 ? v : 0;
     save(); render(); return;
-  }
-  if (e.target.id === 'imp-json') {
-    const f = e.target.files[0]; if (!f) return;
-    try {
-      const s = JSON.parse(await f.text());
-      if (!Array.isArray(s.txs)) throw 0;
-      if (!confirm(`¿Restaurar ${s.txs.length} movimientos? Reemplaza los datos actuales.`)) return;
-      state = normalize(s); applyRecurring(); save(); render(); toast('Respaldo restaurado');
-    } catch { toast('Ese archivo no es un respaldo válido'); }
-    e.target.value = '';
   }
 });
 
@@ -1478,17 +1483,96 @@ function toast(msg, undo) {
   toastTimer = setTimeout(() => t.style.display = 'none', undo ? 5000 : 2500);
 }
 
-/* Exportar: en iPhone abre el menú Compartir (Guardar en Archivos, AirDrop…) */
+/* Exportar: en iPhone abre el menú Compartir (Guardar en Archivos, AirDrop…)
+   Devuelve 'shared' | 'downloaded' | 'cancelled' */
 async function shareFile(name, text, type) {
   const file = new File([text], name, { type });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: name }); return; }
-    catch (e) { if (e.name === 'AbortError') return; }
+    try { await navigator.share({ files: [file] }); return 'shared'; }
+    catch (e) { if (e.name === 'AbortError') return 'cancelled'; }
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(file); a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  return 'downloaded';
+}
+
+/* Respaldo guiado */
+function backupDays() {
+  if (!state.lastBackup) return null;
+  return Math.round((new Date(today() + 'T12:00') - new Date(state.lastBackup + 'T12:00')) / 86400000);
+}
+function backupAge() {
+  const d = backupDays();
+  return d === null ? 'Nunca' : d === 0 ? 'Hoy' : d === 1 ? 'Ayer' : `Hace ${d} días`;
+}
+const stepsHtml = steps => `<ol style="margin:0 0 14px;padding-left:22px;color:var(--text-2);line-height:1.6">${steps.map(s => `<li style="margin-bottom:6px">${s}</li>`).join('')}</ol>`;
+
+function openBackupSheet() {
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const name = `Mis-Finanzas-respaldo-${today()}.json`;
+  openSheet(`
+    <div class="sheet-head"><button class="link" data-close>Cerrar</button><h3>Guardar respaldo</h3><span style="width:60px"></span></div>
+    <div style="text-align:center;font-size:44px;margin:4px 0 6px">💾</div>
+    <p style="margin:0 0 16px;color:var(--text-2);text-align:center">Es una copia de todos tus datos en un archivo. Tus datos <b>ya se guardan solos</b> en la app; esto es por si algún día la borras o cambias de teléfono.</p>
+    <div class="card" style="background:var(--surface-2);margin-bottom:12px">
+      <b style="display:block;margin-bottom:8px">Cómo guardarlo${isIOS ? ' en iCloud' : ''}:</b>
+      ${stepsHtml(isIOS ? [
+        'Toca <b>Guardar archivo</b> aquí abajo.',
+        'En el menú que aparece, baja y elige <b>Guardar en Archivos</b>.',
+        'Elige <b>iCloud Drive</b> (puedes crear una carpeta “Mis Finanzas”) y toca <b>Guardar</b>.',
+      ] : [
+        'Toca <b>Guardar archivo</b>: se descargará a tu carpeta de Descargas.',
+        'Muévelo a una carpeta segura (por ejemplo, OneDrive o iCloud).',
+      ])}
+      <span class="muted" style="font-size:13px">No tienes que abrir el archivo ni hacer nada más con él. Solo lo usarás si necesitas <b>Restaurar respaldo</b>.</span>
+    </div>
+    <p class="hint" style="text-align:center">Último respaldo: <b>${esc(backupAge())}</b> · Recomendado: una vez al mes</p>
+    <button class="btn primary block" id="b-go">Guardar archivo</button>
+  `, sh => {
+    sh.querySelector('#b-go').onclick = async () => {
+      const res = await shareFile(name, JSON.stringify(state, null, 2), 'application/json');
+      if (res === 'cancelled') return toast('No se guardó el respaldo');
+      state.lastBackup = today(); save(); render();
+      sh.innerHTML = `<div class="grabber"></div>
+        <div style="text-align:center;padding:16px 4px 8px">
+          <div style="font-size:48px">✅</div>
+          <h3 style="margin:8px 0 6px;font-size:20px">Respaldo listo</h3>
+          <p style="color:var(--text-2);margin:0 0 16px">${res === 'shared' ? 'Si lo guardaste en Archivos, ya está a salvo.' : 'El archivo quedó en Descargas.'} Se llama:<br><b style="word-break:break-all">${esc(name)}</b></p>
+          <p class="hint" style="text-align:left">Para recuperarlo algún día: <b>Ajustes → Restaurar respaldo</b> y eliges este archivo.</p>
+          <button class="btn primary block" data-close>Entendido</button>
+        </div>`;
+    };
+  });
+}
+
+function openRestoreSheet() {
+  openSheet(`
+    <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>Restaurar respaldo</h3><span style="width:70px"></span></div>
+    <div style="text-align:center;font-size:44px;margin:4px 0 6px">♻️</div>
+    <div class="card" style="background:var(--surface-2);margin-bottom:12px">
+      ${stepsHtml([
+        'Toca <b>Elegir archivo</b>.',
+        'Busca el archivo <b>Mis-Finanzas-respaldo-…json</b> (o finanzas-respaldo-…) en iCloud Drive o donde lo guardaste.',
+        'Confirma y listo: tus datos vuelven a la app.',
+      ])}
+      <span class="muted" style="font-size:13px">⚠ Reemplaza lo que hay ahora en la app por lo del respaldo.</span>
+    </div>
+    <label class="btn primary block" style="display:grid;place-items:center;cursor:pointer">Elegir archivo<input type="file" id="r-file" accept=".json,application/json" hidden></label>
+  `, sh => {
+    sh.querySelector('#r-file').onchange = async e => {
+      const f = e.target.files[0]; if (!f) return;
+      try {
+        const s = JSON.parse(await f.text());
+        if (!Array.isArray(s.txs)) throw 0;
+        const info = `${s.txs.length} movimientos, ${(s.recs || []).length} suscripciones/fijos y ${(s.goals || []).length} metas`;
+        if (!confirm(`Este respaldo tiene ${info}.\n\n¿Reemplazar los datos actuales por estos?`)) { e.target.value = ''; return; }
+        state = normalize(s); applyRecurring(); await save();
+        closeSheet(); setTab('home'); toast('Respaldo restaurado');
+      } catch { toast('Ese archivo no es un respaldo de Mis Finanzas'); e.target.value = ''; }
+    };
+  });
 }
 function exportCsv() {
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
