@@ -143,6 +143,14 @@ main {
 .hero .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; flex: none; }
 .hero .foot { margin-top: 12px; font-size: 13px; color: var(--text-2); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.hero .avail { margin-top: 12px; width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: var(--soft); border: 0; border-radius: 12px; padding: 10px 12px; font-size: 14px; color: var(--text-2); text-align: left; }
+.hero .avail b { font-size: 17px; color: var(--text); white-space: nowrap; }
+.hero .avail b.neg { color: var(--bad-text); }
+.opening-row { display: flex; align-items: center; gap: 10px; width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; margin-bottom: 12px; text-align: left; color: var(--text); }
+.opening-row .e { font-size: 22px; }
+.opening-row .m { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 15px; }
+.opening-row .m span { font-size: 13px; color: var(--muted); }
+.opening-row .go { color: var(--link); font-size: 15px; font-weight: 600; white-space: nowrap; }
 
 /* ---------- Barras de categoría ---------- */
 .cat { display: grid; grid-template-columns: 30px 1fr; gap: 2px 10px; align-items: center; margin-bottom: 14px; }
@@ -501,6 +509,9 @@ function normalize(s) {
     goals: Array.isArray(s.goals) ? s.goals : [],
     currency: s.currency || 'EUR',
     lastBackup: s.lastBackup || null,
+    // Saldo inicial: dinero que había al empezar el día `date` (cuenta + efectivo)
+    opening: s.opening && Number.isFinite(+s.opening.amount) && /^\d{4}-\d{2}-\d{2}$/.test(s.opening.date)
+      ? { amount: +s.opening.amount, date: s.opening.date } : null,
   };
 }
 
@@ -582,6 +593,20 @@ function sumWhere(pred) {
   return { inc, exp, bal: inc - exp };
 }
 const totals = ym => sumWhere(d => monthOf(d) === ym);
+function addDays(date, n) {
+  const d = new Date(date + 'T12:00');
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+// Saldo disponible al final del día `date`: saldo inicial + ingresos − gastos desde su fecha.
+// null si no hay saldo inicial o la fecha es anterior a él.
+function balanceAt(date) {
+  const o = state.opening;
+  if (!o || date < o.date) return null;
+  let b = o.amount;
+  for (const t of state.txs) if (t.date >= o.date && t.date <= date) b += t.type === 'ingreso' ? t.amount : -t.amount;
+  return b;
+}
 
 /* Periodo visible: un mes o un año completo */
 const curYear = () => curMonth.slice(0, 4);
@@ -825,8 +850,20 @@ const rightNote = txt => `<span class="muted" style="font-size:13px;font-weight:
 const sumAmt = list => list.reduce((s, x) => s + x.amount, 0);
 
 /* Balance del periodo */
-function wResumen({ yearMode, t, p, elapsed }) {
+function wResumen({ yearMode, year, t, p, elapsed }) {
   const rate = t.inc ? Math.round(t.bal / t.inc * 100) : null;
+  // Saldo disponible (requiere saldo inicial); tocarlo abre el ajuste del saldo inicial
+  let avail;
+  if (state.opening) {
+    const now = today();
+    const periodEnd = yearMode ? `${year}-12-31` : `${curMonth}-${pad(daysInMonth(curMonth))}`;
+    const ref = periodEnd >= now ? now : periodEnd;
+    const b = balanceAt(ref);
+    avail = b === null ? ''
+      : `<button class="avail" data-opening><span>🏦 ${ref === now ? 'Saldo disponible hoy' : `Saldo al cierre de ${esc(periodLabel())}`}</span><b class="num ${b < 0 ? 'neg' : ''}">${esc(money(b))}</b></button>`;
+  } else {
+    avail = `<button class="avail" data-opening><span>🏦 Define tu saldo inicial para ver tu dinero disponible</span><b style="color:var(--link)">›</b></button>`;
+  }
   return `<div class="card hero">
     <div class="label">Balance de ${esc(periodLabel())}</div>
     <div class="big num ${t.bal < 0 ? 'neg' : ''}">${esc(money(t.bal))}</div>
@@ -837,6 +874,7 @@ function wResumen({ yearMode, t, p, elapsed }) {
     <div class="foot"><span>Tasa de ahorro: <b>${rate === null ? '—' : rate + '%'}</b></span>${
       yearMode && elapsed ? `<span>Gasto promedio: <b>${esc(money(t.exp / elapsed))}</b>/mes</span>` : ''}${
       t.bal < 0 ? '<span class="neg">⚠ Gastaste más de lo que ingresó</span>' : ''}</div>
+    ${avail}
   </div>`;
 }
 
@@ -905,6 +943,11 @@ function wRitmo({ yearMode, year, t }) {
   }
   body += `<div class="w-row"><span>Proyección a fin de mes</span><b class="${projection > base ? 'neg' : ''}">${esc(money(projection))}</b></div>`;
   if (pendingFixed) body += `<div class="w-row"><span>Cobros fijos pendientes</span><b>${esc(money(pendingFixed))}</b></div>`;
+  const balNow = balanceAt(now);
+  if (balNow !== null) {
+    const endBal = balNow + pendingInc - pendingFixed - (Svar / d) * daysLeft;
+    body += `<div class="w-row"><span>Saldo previsto a fin de mes</span><b class="${endBal < 0 ? 'neg' : ''}">${esc(money(endBal))}</b></div>`;
+  }
   const status = fast ? ['neg', '▲ Vas gastando más rápido de lo que avanza el mes']
     : projection > base ? ['neg', `⚠ A este ritmo te pasarás de ${baseTxt}`]
     : ['pos', '✓ Vas a buen ritmo'];
@@ -926,45 +969,62 @@ function wProximos({ yearMode, isCur }) {
 }
 
 /* Saldo acumulado día a día (o mes a mes en vista anual) */
+// Con saldo inicial muestra el saldo real; sin él, ingresos − gastos acumulados del periodo.
 function wSaldo({ yearMode, year }) {
-  const title = 'Saldo día a día';
   const now = today(), curYm = monthOf(now);
-  let pts = [], total, labelFor, sub;
+  const o = state.opening;
+  const title = yearMode ? 'Saldo mes a mes' : 'Saldo día a día';
+  let pts = [], total, labelFor, sub, real;
   if (yearMode) {
     const m = monthsElapsed(year);
-    if (!m) return card('Saldo mes a mes', emptyMsg('Este año aún no empieza.'));
+    if (!m) return card(title, emptyMsg('Este año aún no empieza.'));
+    real = !!o && o.date <= `${year}-12-31`;
     let acc = 0;
     for (let i = 1; i <= m; i++) {
       const ym = `${year}-${pad(i)}`, tt = totals(ym);
-      acc += tt.bal;
-      pts.push({ v: acc, tip: `<b>${esc(cap(monthName(ym, 'long')))}</b>Acumulado: ${esc(money(acc))}<br>Ese mes: ${tt.bal >= 0 ? '+' : ''}${esc(money(tt.bal))}` });
+      const delta = `<br>Ese mes: ${tt.bal >= 0 ? '+' : ''}${esc(money(tt.bal))}`;
+      if (real) {
+        const b = balanceAt(ym === curYm ? now : `${ym}-${pad(daysInMonth(ym))}`);
+        if (b === null) continue;   // meses anteriores al saldo inicial
+        pts.push({ i: i - 1, v: b, tip: `<b>${esc(cap(monthName(ym, 'long')))}</b>Saldo ${ym === curYm ? 'hoy' : 'al cierre'}: ${esc(money(b))}${delta}` });
+      } else {
+        acc += tt.bal;
+        pts.push({ i: i - 1, v: acc, tip: `<b>${esc(cap(monthName(ym, 'long')))}</b>Acumulado: ${esc(money(acc))}${delta}` });
+      }
     }
+    if (!pts.length) return card(title, emptyMsg(`Tu saldo inicial empieza el ${esc(shortDate(o.date))}.`));
     total = 12; labelFor = i => monthName(`${year}-${pad(i + 1)}`).charAt(0).toUpperCase();
-    sub = 'Lo que llevas ahorrado (o gastado de más) en el año, acumulado mes a mes.';
+    sub = real ? 'Tu saldo disponible al cierre de cada mes.' : 'Lo que llevas ahorrado (o gastado de más) en el año, acumulado mes a mes.';
   } else {
     const ym = curMonth, D = daysInMonth(ym);
     if (ym > curYm) return card(title, emptyMsg('Este mes aún no empieza.'));
+    const last = ym === curYm ? +now.slice(8) : D;
     const net = Array(D + 1).fill(0);
     let any = false;
     for (const x of state.txs) if (monthOf(x.date) === ym) { net[+x.date.slice(8)] += x.type === 'ingreso' ? x.amount : -x.amount; any = true; }
-    if (!any) return card(title, emptyMsg('Sin movimientos este mes.'));
-    const last = ym === curYm ? +now.slice(8) : D;
-    let acc = 0;
-    for (let i = 1; i <= last; i++) {
+    real = !!o && o.date <= `${ym}-${pad(last)}`;
+    let first = 1, acc = 0;
+    if (real) {
+      if (o.date >= `${ym}-01`) { first = +o.date.slice(8); acc = o.amount; }   // empieza dentro del mes
+      else acc = balanceAt(addDays(`${ym}-01`, -1));                               // saldo con el que empezó el mes
+    } else if (!any) return card(title, emptyMsg('Sin movimientos este mes.'));
+    for (let i = first; i <= last; i++) {
       acc += net[i];
-      pts.push({ v: acc, tip: `<b>${i} de ${esc(monthName(ym, 'long').split(' ')[0])}</b>Saldo: ${esc(money(acc))}${net[i] ? `<br>Ese día: ${net[i] > 0 ? '+' : ''}${esc(money(net[i]))}` : ''}` });
+      pts.push({ i: i - 1, v: acc, tip: `<b>${i} de ${esc(monthName(ym, 'long').split(' ')[0])}</b>Saldo: ${esc(money(acc))}${net[i] ? `<br>Ese día: ${net[i] > 0 ? '+' : ''}${esc(money(net[i]))}` : ''}` });
     }
     total = D; labelFor = i => (i === 0 || (i + 1) % 5 === 0) ? String(i + 1) : '';
-    sub = 'Ingresos menos gastos acumulados desde el día 1.';
+    sub = real ? 'Tu saldo disponible cada día (saldo inicial + ingresos − gastos).' : 'Ingresos menos gastos acumulados desde el día 1.';
   }
-  const lastV = pts[pts.length - 1].v;
-  const minI = pts.reduce((b, p, i) => p.v < pts[b].v ? i : b, 0);
-  const minLbl = yearMode ? cap(monthName(`${year}-${pad(minI + 1)}`, 'long').split(' ')[0]) : `día ${minI + 1}`;
-  const body = `<div class="w-sub" style="margin-top:0">${sub}</div>
-    <div class="w-row" style="margin:0 0 6px"><span>${yearMode ? 'Acumulado' : 'Saldo'} ${curYm === curMonth || (yearMode && year === now.slice(0, 4)) ? 'a hoy' : 'al cierre'}</span><b class="${lastV < 0 ? 'neg' : ''}">${esc(money(lastV))}</b></div>
-    <div class="w-row" style="margin:0 0 8px"><span>Punto más bajo</span><b class="${pts[minI].v < 0 ? 'neg' : ''}">${esc(money(pts[minI].v))} · ${esc(minLbl)}</b></div>
-    ${lineSvg(pts, total, labelFor, yearMode ? 'Saldo acumulado por mes' : 'Saldo acumulado por día')}`;
-  return card(yearMode ? 'Saldo mes a mes' : title, body);
+  const lastP = pts[pts.length - 1];
+  const minP = pts.reduce((b, p) => p.v < b.v ? p : b, pts[0]);
+  const minLbl = yearMode ? cap(monthName(`${year}-${pad(minP.i + 1)}`, 'long').split(' ')[0]) : `día ${minP.i + 1}`;
+  const isNow = curYm === curMonth || (yearMode && year === now.slice(0, 4));
+  let body = `<div class="w-sub" style="margin-top:0">${sub}</div>
+    <div class="w-row" style="margin:0 0 6px"><span>${real ? 'Saldo' : yearMode ? 'Acumulado' : 'Saldo del mes'} ${isNow ? 'a hoy' : 'al cierre'}</span><b class="${lastP.v < 0 ? 'neg' : ''}">${esc(money(lastP.v))}</b></div>
+    <div class="w-row" style="margin:0 0 8px"><span>Punto más bajo</span><b class="${minP.v < 0 ? 'neg' : ''}">${esc(money(minP.v))} · ${esc(minLbl)}</b></div>
+    ${lineSvg(pts, total, labelFor, yearMode ? 'Saldo por mes' : 'Saldo por día')}`;
+  if (!o) body += `<div class="muted" style="font-size:12px;margin-top:6px">Define tu <button class="link" data-opening style="font-size:12px;padding:0;min-height:0">saldo inicial</button> para ver tu saldo real día a día.</div>`;
+  return card(title, body);
 }
 
 /* Gastos por categoría con presupuesto (en vista anual se acumula) */
@@ -1189,10 +1249,13 @@ function lineSvg(pts, total, labelFor, aria) {
     s += `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${esc(money(v, true))}</text>`;
   }
   for (let i = 0; i < total; i++) { const lb = labelFor(i); if (lb) s += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${esc(lb)}</text>`; }
-  s += `<path class="net" d="${pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join('')}"/>`;
-  const li = pts.length - 1;
-  s += `<circle class="end" cx="${x(li)}" cy="${y(pts[li].v)}" r="4.5"/>`;
-  pts.forEach((p, i) => {
+  // Cada punto lleva su posición `i` (día o mes); así la línea puede empezar a mitad de periodo
+  const px = (p, k) => x(p.i ?? k);
+  s += `<path class="net" d="${pts.map((p, k) => `${k ? 'L' : 'M'}${px(p, k).toFixed(1)},${y(p.v).toFixed(1)}`).join('')}"/>`;
+  const lp = pts[pts.length - 1];
+  s += `<circle class="end" cx="${px(lp, pts.length - 1)}" cy="${y(lp.v)}" r="4.5"/>`;
+  pts.forEach((p, k) => {
+    const i = p.i ?? k;
     const x0 = Math.max(L - 4, x(i) - step / 2), x1 = Math.min(W - R + 4, x(i) + step / 2);
     s += `<g class="pt" data-tip="${esc(p.tip)}"><rect class="hit" x="${x0}" y="${T}" width="${x1 - x0}" height="${H - T - B}"/>
       <line class="xh" x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${H - B}"/><circle class="pm" cx="${x(i)}" cy="${y(p.v)}" r="5"/></g>`;
@@ -1399,6 +1462,7 @@ function renderSettings() {
       ${[['EUR', 'Euro (€)'], ['USD', 'Dólar (US$)'], ['COP', 'Peso colombiano'], ['MXN', 'Peso mexicano'], ['ARS', 'Peso argentino'], ['CLP', 'Peso chileno'], ['PEN', 'Sol peruano']]
         .map(([c, n]) => `<option value="${c}" ${c === state.currency ? 'selected' : ''}>${n}</option>`).join('')}
     </select></div>
+    <button class="row-set" id="open-opening"><span>🏦 Saldo inicial</span><span class="muted">${state.opening ? esc(money(state.opening.amount)) : 'Sin definir'} ›</span></button>
     <button class="row-set" data-goto="rec" style="display:flex"><span>📺 Suscripciones y gastos fijos</span><span class="muted">${state.recs.filter(isSub).length} ›</span></button>
     </div><div class="set-f">Cambiar la moneda solo cambia cómo se muestran los montos; no los convierte.</div>`;
 
@@ -1474,7 +1538,9 @@ function amountField(value) {
   // En euros el símbolo va después del número (9,99 €)
   const after = /^\d/.test(money(1));
   const sym = `<span>${esc(curSymbol())}</span>`;
-  const shown = value ? (zeroDec() ? String(value) : String(value).replace('.', ',')) : '';
+  const n = +value;
+  const shown = value === '' || value == null || !n ? ''
+    : zeroDec() || Number.isInteger(n) ? String(Math.round(n)) : n.toFixed(2).replace('.', ',');
   return `<label class="amount">${after ? '' : sym}<input id="s-amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${esc(shown)}" aria-label="Monto">${after ? sym : ''}</label>
     <div class="amount-fmt" id="s-fmt"></div>`;
 }
@@ -1501,6 +1567,7 @@ function openTxSheet(tx) {
   if (!t.cat) t.cat = (state.cats.find(c => c.type === t.type) || {}).name || '';
   openSheet(`
     <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>${isNew ? 'Nuevo movimiento' : 'Editar movimiento'}</h3><span style="width:70px"></span></div>
+    ${isNew ? openingRow() : ''}
     <div class="seg" id="s-type"><button type="button" data-type="gasto" aria-pressed="${t.type === 'gasto'}">Gasto</button><button type="button" data-type="ingreso" aria-pressed="${t.type === 'ingreso'}">Ingreso</button></div>
     ${amountField(t.amount)}
     <div class="catgrid" id="s-cats">${catGrid(t.type, t.cat)}</div>
@@ -1513,6 +1580,8 @@ function openTxSheet(tx) {
   `, sh => {
     const amt = wireAmount(sh);
     if (isNew) setTimeout(() => amt.focus(), 50);
+    const orow = sh.querySelector('#s-opening');
+    if (orow) orow.onclick = () => openOpeningSheet();
     sh.querySelector('#s-type').onclick = e => {
       const b = e.target.closest('[data-type]'); if (!b) return;
       t.type = b.dataset.type;
@@ -1717,6 +1786,71 @@ function openContribSheet(goal, sign) {
       (g.history = g.history || []).push({ date: today(), amount: sign * v });
       save(); closeSheet(); render();
       toast(g.saved >= g.target ? '🎉 ¡Meta cumplida!' : sign > 0 ? 'Aporte registrado' : 'Retiro registrado');
+    };
+  });
+}
+
+/* Saldo inicial: fila de acceso (en la hoja del +) y hoja para definirlo */
+function openingRow() {
+  const o = state.opening;
+  return `<button type="button" class="opening-row" id="s-opening">
+    <span class="e">🏦</span>
+    <span class="m"><b>Saldo inicial</b><span>${o ? `${esc(money(o.amount))} · desde el ${esc(shortDate(o.date))}` : 'Aún no lo has definido'}</span></span>
+    <span class="go">${o ? 'Modificar' : 'Definir'} ›</span>
+  </button>`;
+}
+function openOpeningSheet() {
+  const o = state.opening;
+  openSheet(`
+    <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>Saldo inicial</h3><span style="width:70px"></span></div>
+    <p class="hint" style="margin:0 4px 6px">Es el dinero que tenías (en tu cuenta y en efectivo) en la fecha que elijas. Desde ahí la app suma tus ingresos y resta tus gastos para mostrarte tu <b>saldo disponible</b>.</p>
+    ${amountField(o ? Math.abs(o.amount) : '')}
+    <label class="switch-row"><span>Saldo negativo<small>Si tu cuenta estaba en descubierto</small></span><input type="checkbox" class="switch" id="o-neg" ${o && o.amount < 0 ? 'checked' : ''}></label>
+    <div class="field"><label for="o-date">Fecha de ese saldo</label><input type="date" id="o-date" value="${o ? o.date : today()}"></div>
+    <div class="card" style="background:var(--surface-2);margin:0;padding:12px 14px">
+      <div class="w-row" style="margin:0"><span>Saldo disponible hoy</span><b id="o-prev">—</b></div>
+      <div class="muted" style="font-size:12px;margin-top:4px" id="o-note"></div>
+    </div>
+    <button class="btn primary block" id="o-save">Guardar saldo inicial</button>
+    ${o ? `<button class="btn danger block" id="o-del">Quitar saldo inicial</button>` : ''}
+  `, sh => {
+    const amt = wireAmount(sh), neg = sh.querySelector('#o-neg'), dateInp = sh.querySelector('#o-date');
+    if (!o) setTimeout(() => amt.focus(), 50);
+    const read = () => {
+      const v = parseAmount(amt.value || '0');
+      return Number.isFinite(v) && v >= 0 ? { amount: neg.checked ? -v : v, date: dateInp.value || today() } : null;
+    };
+    // Vista previa: cómo quedaría el saldo de hoy con este saldo inicial
+    const preview = () => {
+      const r = read(), now = today();
+      if (!r) { sh.querySelector('#o-prev').textContent = '—'; return; }
+      const after = state.txs.filter(t => t.date >= r.date && t.date <= now);
+      const bal = r.amount + after.reduce((s, t) => s + (t.type === 'ingreso' ? t.amount : -t.amount), 0);
+      const before = state.txs.filter(t => t.date < r.date).length;
+      const prev = sh.querySelector('#o-prev');
+      prev.textContent = r.date > now ? '—' : money(bal);
+      prev.className = bal < 0 && r.date <= now ? 'neg' : '';
+      sh.querySelector('#o-note').textContent = r.date > now
+        ? 'La fecha es futura: tu saldo empezará a contar ese día.'
+        : `Se ${after.length === 1 ? 'suma 1 movimiento' : `suman ${after.length} movimientos`} desde esa fecha.` +
+          (before ? ` Los ${before} anteriores no cuentan (ya están dentro de este saldo).` : '');
+    };
+    [amt, dateInp].forEach(el => el.addEventListener('input', preview));
+    neg.addEventListener('change', preview);
+    preview();
+    sh.querySelector('#o-save').onclick = () => {
+      const r = read();
+      if (!r) { amt.focus(); return toast('Escribe un monto válido'); }
+      state.opening = r;
+      save(); closeSheet(); render();
+      toast('Saldo inicial guardado');
+    };
+    const del = sh.querySelector('#o-del');
+    if (del) del.onclick = () => {
+      const old = state.opening;
+      state.opening = null;
+      save(); closeSheet(); render();
+      toast('Saldo inicial quitado', () => { state.opening = old; save(); render(); });
     };
   });
 }
@@ -1986,10 +2120,11 @@ $('tx-filter').onclick = e => { const b = e.target.closest('[data-f]'); if (b) {
 $('search').addEventListener('input', () => renderTx());
 
 document.querySelector('main').addEventListener('click', e => {
-  const el = e.target.closest('[data-edit],[data-rec],[data-delrec],[data-newrec],[data-goal],[data-contrib],[data-withdraw],[data-goto],[data-delcat],[data-month],[data-customize],button[id]');
+  const el = e.target.closest('[data-edit],[data-rec],[data-delrec],[data-newrec],[data-goal],[data-contrib],[data-withdraw],[data-goto],[data-delcat],[data-month],[data-customize],[data-opening],button[id]');
   if (!el) return;
   const d = el.dataset;
   if (d.customize !== undefined) return openWidgetsSheet();
+  if (d.opening !== undefined) return openOpeningSheet();
   if (d.newrec) return openRecSheet(null, d.newrec);
   if (d.delrec) {
     const r = state.recs.find(x => x.id === d.delrec);
@@ -2019,6 +2154,7 @@ document.querySelector('main').addEventListener('click', e => {
     case 'pin-off': return openLock('verify', { onDone: async () => { cryptoKey = null; kdf = null; await save(); render(); toast('PIN desactivado'); } });
     case 'add-cat': return openCatSheet();
     case 'open-theme': return openThemeSheet();
+    case 'open-opening': return openOpeningSheet();
     case 'open-widgets': return openWidgetsSheet();
     case 'exp-json': return openBackupSheet();
     case 'snooze-backup': backupSnoozed = true; return render();
