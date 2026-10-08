@@ -41,6 +41,8 @@
   --expense: #e5683c;
   --fixed: #9085e9;
   --net: #8cc8ff;
+  --acc-card: #3d8fe8;   /* tarjeta y efectivo: validados juntos en los 7 temas */
+  --acc-cash: #c95fb0;
   --good-text: #5ee0a0;
   --bad-text: #ff8f8f;
   --warning: #fab219;
@@ -90,7 +92,7 @@
   --text: #0b0b0b; --text-2: #3c3c43; --muted: #6b6b73; --grid: #e5e5ea; --axis: #c7c7cc;
   --hero-a: #dfe9ff; --hero-b: #ffffff; --tabbar: #f7f7fa; --backdrop: rgba(0,0,0,.35);
   --soft: rgba(0,0,0,0.04);
-  --income: #0f8a72; --expense: #d4572a; --fixed: #6b5fd3; --net: #2a78d6;
+  --income: #0f8a72; --expense: #d4572a; --fixed: #6b5fd3; --net: #2a78d6; --acc-card: #2468c9; --acc-cash: #a8327a;
   --good-text: #0a7a3a; --bad-text: #c62828; --link: #0a64d6; --toast-link: #8cc8ff;
   --accent-auto: #0b1633; --accent-ink-auto: #ffffff;
 }
@@ -143,9 +145,31 @@ main {
 .hero .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; flex: none; }
 .hero .foot { margin-top: 12px; font-size: 13px; color: var(--text-2); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.hero .avail { margin-top: 12px; width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: var(--soft); border: 0; border-radius: 12px; padding: 10px 12px; font-size: 14px; color: var(--text-2); text-align: left; }
-.hero .avail b { font-size: 17px; color: var(--text); white-space: nowrap; }
+.hero .avail { margin-top: 12px; width: 100%; display: flex; flex-direction: column; gap: 6px; background: var(--soft); border: 0; border-radius: 12px; padding: 10px 12px; font-size: 14px; color: var(--text-2); text-align: left; }
+.hero .avail .top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.hero .avail .top b { font-size: 17px; color: var(--text); white-space: nowrap; }
+.hero .avail .accs { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.hero .avail .accs b { color: var(--text); font-weight: 650; }
 .hero .avail b.neg { color: var(--bad-text); }
+/* Selector de cuenta y cuentas */
+.acc-seg button { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.flow { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.flow .end { flex: 1; background: var(--surface-2); border-radius: 12px; padding: 10px 12px; text-align: center; font-weight: 650; font-size: 15px; }
+.flow .end small { display: block; font-size: 12px; color: var(--muted); font-weight: 500; }
+.flow .swap { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 18px; flex: none; }
+.acc-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.acc-tile { background: var(--surface-2); border-radius: 14px; padding: 12px; min-width: 0; }
+.acc-tile .h { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
+.acc-tile .bal { font-size: 21px; font-weight: 750; margin-top: 4px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.acc-tile .mv { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.xfer { color: var(--text-2) !important; }
+.o-acc { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface-2); border-radius: 14px; padding: 10px 12px; margin-bottom: 10px; }
+.o-acc .h { font-weight: 650; font-size: 15px; white-space: nowrap; }
+.o-in { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.o-in .inp { width: 120px; text-align: right; font-size: 20px; font-weight: 700; background: var(--surface); min-height: 44px; }
+.o-in .sign { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 800; font-size: 17px; flex: none; }
+.o-in .sign.neg { color: var(--bad-text); border-color: var(--bad-text); }
+.o-in .cur { color: var(--muted); font-weight: 600; }
 .opening-row { display: flex; align-items: center; gap: 10px; width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; margin-bottom: 12px; text-align: left; color: var(--text); }
 .opening-row .e { font-size: 22px; }
 .opening-row .m { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 15px; }
@@ -421,6 +445,12 @@ svg.chart .vlab { fill: var(--text-2); font-weight: 650; }
           <button class="chip" data-f="all" aria-pressed="true">Todos</button>
           <button class="chip" data-f="gasto" aria-pressed="false">Gastos</button>
           <button class="chip" data-f="ingreso" aria-pressed="false">Ingresos</button>
+          <button class="chip" data-f="transfer" aria-pressed="false">↔ Movidos</button>
+        </div>
+        <div class="chips" id="tx-acc">
+          <button class="chip" data-a="all" aria-pressed="true">Todas las cuentas</button>
+          <button class="chip" data-a="tarjeta" aria-pressed="false">💳 Tarjeta</button>
+          <button class="chip" data-a="efectivo" aria-pressed="false">💵 Efectivo</button>
         </div>
         <input type="search" id="search" placeholder="Buscar por nota o categoría" aria-label="Buscar movimientos">
         <div id="tx-list"></div>
@@ -491,6 +521,15 @@ const DEFAULT_CATS = [
   ['Salario','💼','ingreso'], ['Freelance','💻','ingreso'], ['Otros ingresos','💰','ingreso'],
 ].map(([name, emoji, type]) => ({ name, emoji, type, budget: 0 }));
 
+// Dónde está el dinero: cada movimiento sale o entra de una de estas cuentas
+const ACCOUNTS = [
+  { id: 'tarjeta',  name: 'Tarjeta',  emoji: '💳', color: 'var(--acc-card)' },
+  { id: 'efectivo', name: 'Efectivo', emoji: '💵', color: 'var(--acc-cash)' },
+];
+const isAcc = id => ACCOUNTS.some(a => a.id === id);
+const accOf = id => ACCOUNTS.find(a => a.id === id) || ACCOUNTS[0];
+const otherAcc = id => ACCOUNTS.find(a => a.id !== id).id;
+
 let state = null;        // datos descifrados en memoria
 let cryptoKey = null;    // clave AES derivada del PIN (no exportable)
 let kdf = null;          // { salt: Uint8Array, iter }
@@ -502,16 +541,33 @@ function normalize(s) {
     if (!c.emoji) c.emoji = (DEFAULT_CATS.find(d => d.name === c.name) || {}).emoji || (c.type === 'ingreso' ? '💰' : '🏷️');
     c.budget = +c.budget || 0;
   }
+  // Cada ingreso/gasto pertenece a una cuenta (tarjeta o efectivo). Los datos
+  // anteriores a las cuentas se asignan a la tarjeta.
+  const txs = (Array.isArray(s.txs) ? s.txs : []).filter(t => t && t.date && +t.amount > 0 && (
+    t.type === 'transfer' ? isAcc(t.from) && isAcc(t.to) && t.from !== t.to : true));
+  for (const t of txs) if (t.type !== 'transfer' && !isAcc(t.acc)) t.acc = 'tarjeta';
+  const recs = Array.isArray(s.recs) ? s.recs : [];
+  for (const r of recs) if (!isAcc(r.acc)) r.acc = 'tarjeta';
+  // Saldo inicial: dinero en cada cuenta al empezar el día `date`.
+  // El formato anterior ({ amount, date }) pasa entero a la tarjeta.
+  let opening = null;
+  const o = s.opening;
+  if (o && /^\d{4}-\d{2}-\d{2}$/.test(o.date)) {
+    if (o.amounts && typeof o.amounts === 'object') {
+      opening = { date: o.date, amounts: Object.fromEntries(ACCOUNTS.map(a => [a.id, Number.isFinite(+o.amounts[a.id]) ? +o.amounts[a.id] : 0])) };
+    } else if (Number.isFinite(+o.amount)) {
+      opening = { date: o.date, amounts: { tarjeta: +o.amount, efectivo: 0 } };
+    }
+  }
   return {
-    txs: Array.isArray(s.txs) ? s.txs.filter(t => t && t.date && +t.amount > 0) : [],
+    txs,
     cats,
-    recs: Array.isArray(s.recs) ? s.recs : [],
+    recs,
     goals: Array.isArray(s.goals) ? s.goals : [],
     currency: s.currency || 'EUR',
     lastBackup: s.lastBackup || null,
-    // Saldo inicial: dinero que había al empezar el día `date` (cuenta + efectivo)
-    opening: s.opening && Number.isFinite(+s.opening.amount) && /^\d{4}-\d{2}-\d{2}$/.test(s.opening.date)
-      ? { amount: +s.opening.amount, date: s.opening.date } : null,
+    opening,
+    lastAcc: isAcc(s.lastAcc) ? s.lastAcc : 'tarjeta',
   };
 }
 
@@ -589,22 +645,35 @@ function parseAmount(s) {
 const catOf = name => state.cats.find(c => c.name === name) || { name, emoji: '❔', type: 'gasto', budget: 0 };
 function sumWhere(pred) {
   let inc = 0, exp = 0;
-  for (const t of state.txs) if (pred(t.date)) t.type === 'ingreso' ? inc += t.amount : exp += t.amount;
+  for (const t of state.txs) {
+    if (!pred(t.date)) continue;
+    if (t.type === 'ingreso') inc += t.amount;
+    else if (t.type === 'gasto') exp += t.amount;   // las transferencias entre cuentas no cuentan
+  }
   return { inc, exp, bal: inc - exp };
 }
+// Cuánto cambia un movimiento el saldo de una cuenta (o el total si no se indica cuenta).
+// Una transferencia resta en una cuenta y suma en la otra: en el total no cambia nada.
+function txDelta(t, acc) {
+  if (t.type === 'transfer') return !acc ? 0 : t.from === acc ? -t.amount : t.to === acc ? t.amount : 0;
+  if (acc && t.acc !== acc) return 0;
+  return t.type === 'ingreso' ? t.amount : -t.amount;
+}
+const openingOf = acc => !state.opening ? 0 : acc ? state.opening.amounts[acc] || 0
+  : Object.values(state.opening.amounts).reduce((s, v) => s + v, 0);
 const totals = ym => sumWhere(d => monthOf(d) === ym);
 function addDays(date, n) {
   const d = new Date(date + 'T12:00');
   d.setDate(d.getDate() + n);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
-// Saldo disponible al final del día `date`: saldo inicial + ingresos − gastos desde su fecha.
-// null si no hay saldo inicial o la fecha es anterior a él.
-function balanceAt(date) {
+// Saldo disponible al final del día `date` (de una cuenta o total): saldo inicial
+// + ingresos − gastos desde su fecha. null si no hay saldo inicial o la fecha es anterior.
+function balanceAt(date, acc) {
   const o = state.opening;
   if (!o || date < o.date) return null;
-  let b = o.amount;
-  for (const t of state.txs) if (t.date >= o.date && t.date <= date) b += t.type === 'ingreso' ? t.amount : -t.amount;
+  let b = openingOf(acc);
+  for (const t of state.txs) if (t.date >= o.date && t.date <= date) b += txDelta(t, acc);
   return b;
 }
 
@@ -663,6 +732,7 @@ const ACCENTS = [
 ];
 const WIDGETS = [
   { id: 'resumen',       icon: '💶', name: 'Balance del periodo',        desc: 'Ingresos, gastos, balance y tasa de ahorro' },
+  { id: 'cuentas',       icon: '👛', name: 'Efectivo y tarjeta',         desc: 'Cuánto tienes en cada uno y cómo pagas' },
   { id: 'ritmo',         icon: '⏱️', name: 'Ritmo de gasto',             desc: 'Cuánto puedes gastar al día y cómo cerrarás el mes' },
   { id: 'proximos',      icon: '📅', name: 'Próximos cobros',            desc: 'Fijos y suscripciones que faltan este mes' },
   { id: 'saldo',         icon: '📈', name: 'Saldo día a día',            desc: 'Cómo sube y baja tu dinero durante el mes' },
@@ -682,7 +752,14 @@ function normalizePrefs(p) {
   for (const w of Array.isArray(p.widgets) ? p.widgets : []) {
     if (w && WIDGETS.some(x => x.id === w.id) && !widgets.some(x => x.id === w.id)) widgets.push({ id: w.id, on: w.on !== false });
   }
-  for (const w of WIDGETS) if (!widgets.some(x => x.id === w.id)) widgets.push({ id: w.id, on: true });   // widgets nuevos: visibles
+  // Widgets nuevos: visibles y colocados donde van por defecto (detrás del widget que los precede)
+  WIDGETS.forEach((w, k) => {
+    if (widgets.some(x => x.id === w.id)) return;
+    const prevIds = WIDGETS.slice(0, k).map(x => x.id);
+    let at = 0;
+    widgets.forEach((x, i) => { if (prevIds.includes(x.id)) at = i + 1; });
+    widgets.splice(at, 0, { id: w.id, on: true });
+  });
   return {
     theme: THEMES.some(t => t.id === p.theme) ? p.theme : 'marino',
     accent: ACCENTS.some(a => a.id === p.accent) ? p.accent : 'auto',
@@ -745,7 +822,7 @@ function applyRecurring() {
     while (ym <= curYm) {
       const day = Math.min(r.day, daysInMonth(ym));
       if (ym === curYm && day > d) break;
-      state.txs.push({ id: uid(), type: r.type, amount: r.amount, cat: r.cat, note: r.note, date: `${ym}-${pad(day)}`, rec: r.id });
+      state.txs.push({ id: uid(), type: r.type, amount: r.amount, cat: r.cat, note: r.note, date: `${ym}-${pad(day)}`, rec: r.id, acc: r.acc || 'tarjeta' });
       r.last = ym; n++;
       ym = shiftMonth(ym, recStep(r));
     }
@@ -760,6 +837,7 @@ function applyRecurring() {
 let tab = 'home';
 let curMonth = monthOf(today());
 let txFilter = 'all';
+let txAcc = 'all';   // filtro por cuenta en Movimientos
 let txMode = 'hist';
 let period = 'month';
 let backupSnoozed = false;   // ocultar el recordatorio de respaldo hasta la próxima apertura
@@ -859,10 +937,12 @@ function wResumen({ yearMode, year, t, p, elapsed }) {
     const periodEnd = yearMode ? `${year}-12-31` : `${curMonth}-${pad(daysInMonth(curMonth))}`;
     const ref = periodEnd >= now ? now : periodEnd;
     const b = balanceAt(ref);
+    const split = ACCOUNTS.map(a => { const v = balanceAt(ref, a.id); return `<span>${a.emoji} ${esc(a.name)} <b class="num ${v < 0 ? 'neg' : ''}">${esc(money(v))}</b></span>`; }).join('');
     avail = b === null ? ''
-      : `<button class="avail" data-opening><span>🏦 ${ref === now ? 'Saldo disponible hoy' : `Saldo al cierre de ${esc(periodLabel())}`}</span><b class="num ${b < 0 ? 'neg' : ''}">${esc(money(b))}</b></button>`;
+      : `<button class="avail" data-opening><span class="top"><span>🏦 ${ref === now ? 'Saldo disponible hoy' : `Saldo al cierre de ${esc(periodLabel())}`}</span><b class="num ${b < 0 ? 'neg' : ''}">${esc(money(b))}</b></span>
+          <span class="accs">${split}</span></button>`;
   } else {
-    avail = `<button class="avail" data-opening><span>🏦 Define tu saldo inicial para ver tu dinero disponible</span><b style="color:var(--link)">›</b></button>`;
+    avail = `<button class="avail" data-opening><span class="top"><span>🏦 Define tus saldos de tarjeta y efectivo para ver tu dinero disponible</span><b style="color:var(--link)">›</b></span></button>`;
   }
   return `<div class="card hero">
     <div class="label">Balance de ${esc(periodLabel())}</div>
@@ -876,6 +956,54 @@ function wResumen({ yearMode, year, t, p, elapsed }) {
       t.bal < 0 ? '<span class="neg">⚠ Gastaste más de lo que ingresó</span>' : ''}</div>
     ${avail}
   </div>`;
+}
+
+/* Efectivo y tarjeta: saldo de cada cuenta, sus movimientos y cómo pagas */
+function wCuentas({ yearMode }) {
+  const now = today();
+  const periodEnd = yearMode ? `${curYear()}-12-31` : `${curMonth}-${pad(daysInMonth(curMonth))}`;
+  const ref = periodEnd >= now ? now : periodEnd;
+  const per = Object.fromEntries(ACCOUNTS.map(a => [a.id, { inc: 0, exp: 0, n: 0, inX: 0, outX: 0 }]));
+  for (const x of state.txs) {
+    if (!inPeriod(x.date)) continue;
+    if (x.type === 'transfer') { per[x.from].outX += x.amount; per[x.to].inX += x.amount; continue; }
+    const p = per[x.acc];
+    if (!p) continue;
+    if (x.type === 'ingreso') p.inc += x.amount; else { p.exp += x.amount; p.n++; }
+  }
+  const tiles = ACCOUNTS.map(a => {
+    const p = per[a.id], bal = balanceAt(ref, a.id);
+    const moves = [
+      p.exp ? `−${esc(money(p.exp))} en gastos` : '',
+      p.inc ? `+${esc(money(p.inc))} en ingresos` : '',
+      p.inX ? `+${esc(money(p.inX))} recibido de ${esc(accOf(otherAcc(a.id)).name.toLowerCase())}` : '',
+      p.outX ? `−${esc(money(p.outX))} pasado a ${esc(accOf(otherAcc(a.id)).name.toLowerCase())}` : '',
+    ].filter(Boolean);
+    return `<div class="acc-tile">
+      <div class="h"><i class="dot" style="background:${a.color}"></i>${a.emoji} ${esc(a.name)}</div>
+      ${bal === null ? `<div class="bal muted" style="font-size:14px;font-weight:600">Sin saldo inicial</div>` : `<div class="bal ${bal < 0 ? 'neg' : ''}">${esc(money(bal))}</div>`}
+      <div class="mv">${moves.length ? moves.join('<br>') : `Sin movimientos ${yearMode ? 'este año' : 'este mes'}`}</div>
+    </div>`;
+  }).join('');
+
+  // Cómo pagaste: reparto de los gastos del periodo entre tarjeta y efectivo
+  const totalExp = ACCOUNTS.reduce((s, a) => s + per[a.id].exp, 0);
+  let split = '';
+  if (totalExp) {
+    const pcts = ACCOUNTS.map(a => Math.round(per[a.id].exp / totalExp * 100));
+    pcts[pcts.length - 1] = 100 - pcts.slice(0, -1).reduce((s, v) => s + v, 0);
+    split = `<div class="w-sub" style="margin:14px 0 0">Cómo pagaste tus gastos ${yearMode ? 'este año' : 'este mes'}</div>
+      <div class="stack" role="img" aria-label="${ACCOUNTS.map((a, i) => `${a.name} ${pcts[i]}%`).join(', ')}">${ACCOUNTS.map((a, i) => per[a.id].exp
+        ? `<div style="flex:${per[a.id].exp};background:${a.color}" data-tip="${esc(`<b>${a.emoji} ${a.name}</b>${esc(money(per[a.id].exp))} · ${pcts[i]}%<br>${per[a.id].n} ${per[a.id].n === 1 ? 'pago' : 'pagos'}`)}"></div>` : '').join('')}</div>
+      <div class="lg">${ACCOUNTS.map((a, i) => `<div><i class="dot" style="background:${a.color}"></i><span>${a.emoji} ${esc(a.name)} <span class="muted" style="font-size:12px">${per[a.id].n} ${per[a.id].n === 1 ? 'pago' : 'pagos'}</span></span><b>${esc(money(per[a.id].exp))} · ${pcts[i]}%</b></div>`).join('')}</div>`;
+  }
+  const actions = `<div style="display:flex;gap:8px;margin-top:12px">
+    <button class="btn" style="flex:1;min-height:42px;font-size:14px;padding:0 8px" data-xfer="tarjeta">🏧 Sacar efectivo</button>
+    <button class="btn" style="flex:1;min-height:42px;font-size:14px;padding:0 8px" data-xfer="efectivo">🏦 Ingresar efectivo</button>
+  </div>`;
+  const hint = state.opening ? '' : `<div class="muted" style="font-size:12px;margin-top:10px">Indica cuánto tienes en cada uno en <button class="link" data-opening style="font-size:12px;padding:0;min-height:0">saldos iniciales</button> para ver tus saldos.</div>`;
+  return card('Efectivo y tarjeta', `<div class="acc-tiles">${tiles}</div>${split}${actions}${hint}`,
+    state.opening ? rightNote(ref === now ? 'Saldo hoy' : 'Saldo al cierre') : '');
 }
 
 /* Ritmo de gasto: cuánto puedes gastar al día y proyección */
@@ -984,9 +1112,11 @@ function wSaldo({ yearMode, year }) {
       const ym = `${year}-${pad(i)}`, tt = totals(ym);
       const delta = `<br>Ese mes: ${tt.bal >= 0 ? '+' : ''}${esc(money(tt.bal))}`;
       if (real) {
-        const b = balanceAt(ym === curYm ? now : `${ym}-${pad(daysInMonth(ym))}`);
+        const end = ym === curYm ? now : `${ym}-${pad(daysInMonth(ym))}`;
+        const b = balanceAt(end);
         if (b === null) continue;   // meses anteriores al saldo inicial
-        pts.push({ i: i - 1, v: b, tip: `<b>${esc(cap(monthName(ym, 'long')))}</b>Saldo ${ym === curYm ? 'hoy' : 'al cierre'}: ${esc(money(b))}${delta}` });
+        const split = ACCOUNTS.map(a => `${a.emoji} ${esc(money(balanceAt(end, a.id)))}`).join(' · ');
+        pts.push({ i: i - 1, v: b, tip: `<b>${esc(cap(monthName(ym, 'long')))}</b>Saldo ${ym === curYm ? 'hoy' : 'al cierre'}: ${esc(money(b))}<br>${split}${delta}` });
       } else {
         acc += tt.bal;
         pts.push({ i: i - 1, v: acc, tip: `<b>${esc(cap(monthName(ym, 'long')))}</b>Acumulado: ${esc(money(acc))}${delta}` });
@@ -999,18 +1129,35 @@ function wSaldo({ yearMode, year }) {
     const ym = curMonth, D = daysInMonth(ym);
     if (ym > curYm) return card(title, emptyMsg('Este mes aún no empieza.'));
     const last = ym === curYm ? +now.slice(8) : D;
+    // Variación diaria total y por cuenta (las transferencias solo mueven dinero entre cuentas)
     const net = Array(D + 1).fill(0);
+    const netAcc = Object.fromEntries(ACCOUNTS.map(a => [a.id, Array(D + 1).fill(0)]));
     let any = false;
-    for (const x of state.txs) if (monthOf(x.date) === ym) { net[+x.date.slice(8)] += x.type === 'ingreso' ? x.amount : -x.amount; any = true; }
+    for (const x of state.txs) {
+      if (monthOf(x.date) !== ym) continue;
+      const day = +x.date.slice(8);
+      net[day] += txDelta(x);
+      for (const a of ACCOUNTS) netAcc[a.id][day] += txDelta(x, a.id);
+      any = true;
+    }
     real = !!o && o.date <= `${ym}-${pad(last)}`;
     let first = 1, acc = 0;
+    const accBal = {};
     if (real) {
-      if (o.date >= `${ym}-01`) { first = +o.date.slice(8); acc = o.amount; }   // empieza dentro del mes
-      else acc = balanceAt(addDays(`${ym}-01`, -1));                               // saldo con el que empezó el mes
+      const startsInside = o.date >= `${ym}-01`;
+      if (startsInside) first = +o.date.slice(8);                     // empieza dentro del mes
+      const before = addDays(`${ym}-01`, -1);                           // saldo con el que empezó el mes
+      acc = startsInside ? openingOf() : balanceAt(before);
+      for (const a of ACCOUNTS) accBal[a.id] = startsInside ? openingOf(a.id) : balanceAt(before, a.id);
     } else if (!any) return card(title, emptyMsg('Sin movimientos este mes.'));
     for (let i = first; i <= last; i++) {
       acc += net[i];
-      pts.push({ i: i - 1, v: acc, tip: `<b>${i} de ${esc(monthName(ym, 'long').split(' ')[0])}</b>Saldo: ${esc(money(acc))}${net[i] ? `<br>Ese día: ${net[i] > 0 ? '+' : ''}${esc(money(net[i]))}` : ''}` });
+      let split = '';
+      if (real) {
+        for (const a of ACCOUNTS) accBal[a.id] += netAcc[a.id][i];
+        split = '<br>' + ACCOUNTS.map(a => `${a.emoji} ${esc(money(accBal[a.id]))}`).join(' · ');
+      }
+      pts.push({ i: i - 1, v: acc, tip: `<b>${i} de ${esc(monthName(ym, 'long').split(' ')[0])}</b>Saldo: ${esc(money(acc))}${split}${net[i] ? `<br>Ese día: ${net[i] > 0 ? '+' : ''}${esc(money(net[i]))}` : ''}` });
     }
     total = D; labelFor = i => (i === 0 || (i + 1) % 5 === 0) ? String(i + 1) : '';
     sub = real ? 'Tu saldo disponible cada día (saldo inicial + ingresos − gastos).' : 'Ingresos menos gastos acumulados desde el día 1.';
@@ -1119,7 +1266,7 @@ function wMayores({ yearMode, t }) {
   const share = t.exp ? sumAmt(top) / t.exp * 100 : 0;
   return card('Mayores gastos', top.map(x => `<button class="mini" data-edit="${x.id}">
       <span class="e">${esc(catOf(x.cat).emoji)}</span>
-      <span class="m"><span class="t">${esc(x.note || x.cat)}</span><span class="s">${esc(x.cat)} · ${esc(shortDate(x.date))}${x.rec ? ' · ↻' : ''}</span></span>
+      <span class="m"><span class="t">${esc(x.note || x.cat)}</span><span class="s">${accOf(x.acc).emoji} ${esc(x.cat)} · ${esc(shortDate(x.date))}${x.rec ? ' · ↻' : ''}</span></span>
       <span class="a">−${esc(money(x.amount))}</span></button>`).join('')
     + `<div class="muted" style="font-size:12px;margin-top:8px">Estos ${top.length} suman el ${Math.round(share)}% de tus gastos ${yearMode ? 'del año' : 'del mes'}.</div>`);
 }
@@ -1226,7 +1373,7 @@ function wMetas() {
 }
 
 const WIDGET_FNS = {
-  resumen: wResumen, ritmo: wRitmo, proximos: wProximos, saldo: wSaldo, categorias: wCategorias,
+  resumen: wResumen, cuentas: wCuentas, ritmo: wRitmo, proximos: wProximos, saldo: wSaldo, categorias: wCategorias,
   cambios: wCambios, mayores: wMayores, fijos: wFijos, semana: wSemana,
   suscripciones: wSuscripciones, tendencia: wTendencia, metas: wMetas,
 };
@@ -1311,12 +1458,16 @@ function renderTx() {
   $('tx-rec').hidden = txMode !== 'rec';
   if (txMode === 'rec') return renderRecs();
   document.querySelectorAll('#tx-filter button').forEach(b => b.setAttribute('aria-pressed', b.dataset.f === txFilter));
+  document.querySelectorAll('#tx-acc button').forEach(b => b.setAttribute('aria-pressed', b.dataset.a === txAcc));
   const q = $('search').value.trim().toLowerCase();
+  const acc = txAcc === 'all' ? undefined : txAcc;
+  const inAcc = t => !acc || (t.type === 'transfer' ? t.from === acc || t.to === acc : t.acc === acc);
+  const text = t => t.type === 'transfer' ? `${t.note || ''} ${accOf(t.from).name} ${accOf(t.to).name} movido` : `${t.note || ''} ${t.cat} ${accOf(t.acc).name}`;
   const rows = state.txs
-    .filter(t => inPeriod(t.date) && (txFilter === 'all' || t.type === txFilter) && (!q || ((t.note || '') + ' ' + t.cat).toLowerCase().includes(q)))
+    .filter(t => inPeriod(t.date) && (txFilter === 'all' || t.type === txFilter) && inAcc(t) && (!q || text(t).toLowerCase().includes(q)))
     .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
   if (!rows.length) {
-    $('tx-list').innerHTML = `<div class="card empty" style="margin-top:12px">${q || txFilter !== 'all' ? 'Sin resultados para este filtro.' : 'No hay movimientos en ' + esc(periodLabel()) + '.'}</div>`;
+    $('tx-list').innerHTML = `<div class="card empty" style="margin-top:12px">${q || txFilter !== 'all' || acc ? 'Sin resultados para este filtro.' : 'No hay movimientos en ' + esc(periodLabel()) + '.'}</div>`;
     return;
   }
   // Vista mensual: agrupado por día. Vista anual: agrupado por mes.
@@ -1329,19 +1480,30 @@ function renderTx() {
   for (const t of rows) { const k = groupKey(t); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); }
   let h = '';
   if (yearMode) {
-    const tt = rows.reduce((s, t) => (t.type === 'ingreso' ? s.inc += t.amount : s.exp += t.amount, s), { inc: 0, exp: 0 });
+    const tt = rows.reduce((s, t) => (t.type === 'ingreso' ? s.inc += t.amount : t.type === 'gasto' ? s.exp += t.amount : 0, s), { inc: 0, exp: 0 });
     h += `<div class="card" style="display:flex;justify-content:space-between;gap:8px;padding:12px 16px;margin-top:4px">
       <span><span class="muted" style="font-size:13px">${rows.length} movimientos</span></span>
       <span class="num" style="font-size:14px"><span style="color:var(--income)">▲</span> ${esc(money(tt.inc, true))} · <span style="color:var(--expense)">▼</span> ${esc(money(tt.exp, true))}</span></div>`;
   }
   for (const [key, list] of groups) {
-    const net = list.reduce((s, t) => s + (t.type === 'ingreso' ? t.amount : -t.amount), 0);
+    // Neto del grupo: del total, o de la cuenta filtrada (ahí las transferencias sí cuentan)
+    const net = list.reduce((s, t) => s + txDelta(t, acc), 0);
     h += `<div class="list-h"><span>${esc(groupLabel(key))}</span><span class="num">${esc(money(net))}</span></div><div class="list">`;
     h += list.map(t => {
-      const c = catOf(t.cat);
+      const when = yearMode ? ' · ' + esc(shortDate(t.date)) : '';
+      if (t.type === 'transfer') {
+        const f = accOf(t.from), to = accOf(t.to);
+        const d = acc ? txDelta(t, acc) : 0;
+        return `<button class="item" data-edit="${t.id}">
+          <span class="ico">↔️</span>
+          <span class="main"><span class="t" style="display:block">${esc(t.note || (t.to === 'efectivo' ? 'Sacar efectivo' : 'Ingresar efectivo'))}</span><span class="s" style="display:block">${f.emoji} ${esc(f.name)} → ${to.emoji} ${esc(to.name)}${when}</span></span>
+          <span class="amt ${d > 0 ? 'pos' : 'xfer'}">${d > 0 ? '+' : d < 0 ? '−' : ''}${esc(money(t.amount))}</span>
+        </button>`;
+      }
+      const c = catOf(t.cat), a = accOf(t.acc);
       return `<button class="item" data-edit="${t.id}">
         <span class="ico">${esc(c.emoji)}</span>
-        <span class="main"><span class="t" style="display:block">${esc(t.note || t.cat)}${t.rec ? '<span class="badge">↻</span>' : ''}</span><span class="s" style="display:block">${esc(t.cat)}${yearMode ? ' · ' + esc(shortDate(t.date)) : ''}</span></span>
+        <span class="main"><span class="t" style="display:block">${esc(t.note || t.cat)}${t.rec ? '<span class="badge">↻</span>' : ''}</span><span class="s" style="display:block">${a.emoji} ${esc(t.cat)}${when}</span></span>
         <span class="amt ${t.type === 'ingreso' ? 'pos' : ''}">${t.type === 'ingreso' ? '+' : '−'}${esc(money(t.amount))}</span>
       </button>`;
     }).join('') + `</div>`;
@@ -1358,7 +1520,7 @@ function recRow(r) {
     <button class="item-btn" data-rec="${r.id}" aria-label="Editar ${esc(r.note || r.cat)}">
       <span class="ico">${esc(recEmoji(r))}</span>
       <span class="main"><span class="t" style="display:block">${esc(r.note || r.cat)}</span>
-      <span class="s" style="display:block">${when} · ${r.active ? 'próximo ' + esc(nd) : 'en pausa'}</span></span>
+      <span class="s" style="display:block">${accOf(r.acc).emoji} ${when} · ${r.active ? 'próximo ' + esc(nd) : 'en pausa'}</span></span>
       <span style="text-align:right"><span class="amt ${r.type === 'ingreso' ? 'pos' : ''}" style="display:block">${r.type === 'ingreso' ? '+' : '−'}${esc(money(r.amount))}</span>
       ${r.freq === 'year' ? `<span class="s num" style="display:block;font-size:12px">${esc(money(recMonthly(r)))}/mes</span>` : ''}</span>
     </button>
@@ -1462,7 +1624,7 @@ function renderSettings() {
       ${[['EUR', 'Euro (€)'], ['USD', 'Dólar (US$)'], ['COP', 'Peso colombiano'], ['MXN', 'Peso mexicano'], ['ARS', 'Peso argentino'], ['CLP', 'Peso chileno'], ['PEN', 'Sol peruano']]
         .map(([c, n]) => `<option value="${c}" ${c === state.currency ? 'selected' : ''}>${n}</option>`).join('')}
     </select></div>
-    <button class="row-set" id="open-opening"><span>🏦 Saldo inicial</span><span class="muted">${state.opening ? esc(money(state.opening.amount)) : 'Sin definir'} ›</span></button>
+    <button class="row-set" id="open-opening"><span>🏦 Saldos iniciales</span><span class="muted">${state.opening ? ACCOUNTS.map(a => `${a.emoji} ${esc(money(openingOf(a.id)))}`).join(' · ') : 'Sin definir'} ›</span></button>
     <button class="row-set" data-goto="rec" style="display:flex"><span>📺 Suscripciones y gastos fijos</span><span class="muted">${state.recs.filter(isSub).length} ›</span></button>
     </div><div class="set-f">Cambiar la moneda solo cambia cómo se muestran los montos; no los convierte.</div>`;
 
@@ -1561,20 +1723,45 @@ function catGrid(type, selected) {
 
 /* Movimiento: nuevo / editar */
 let lastType = 'gasto';
-function openTxSheet(tx) {
+function openTxSheet(tx, preset = {}) {
   const isNew = !tx;
-  const t = tx ? { ...tx } : { type: lastType, amount: '', cat: '', date: curMonth === monthOf(today()) ? today() : curMonth + '-01', note: '' };
-  if (!t.cat) t.cat = (state.cats.find(c => c.type === t.type) || {}).name || '';
+  const t = tx ? { ...tx } : {
+    type: preset.type || lastType, amount: '', cat: '', note: '',
+    date: curMonth === monthOf(today()) ? today() : curMonth + '-01',
+    acc: state.lastAcc || 'tarjeta',
+  };
+  if (!isAcc(t.acc)) t.acc = state.lastAcc || 'tarjeta';
+  t.from = isAcc(t.from) ? t.from : preset.from || 'tarjeta';
+  t.to = otherAcc(t.from);
+  const firstCat = type => (state.cats.find(c => c.type === type) || {}).name || '';
+  if (!t.cat && t.type !== 'transfer') t.cat = firstCat(t.type);
   openSheet(`
     <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>${isNew ? 'Nuevo movimiento' : 'Editar movimiento'}</h3><span style="width:70px"></span></div>
     ${isNew ? openingRow() : ''}
-    <div class="seg" id="s-type"><button type="button" data-type="gasto" aria-pressed="${t.type === 'gasto'}">Gasto</button><button type="button" data-type="ingreso" aria-pressed="${t.type === 'ingreso'}">Ingreso</button></div>
+    <div class="seg" id="s-type">
+      <button type="button" data-type="gasto" aria-pressed="${t.type === 'gasto'}">Gasto</button>
+      <button type="button" data-type="ingreso" aria-pressed="${t.type === 'ingreso'}">Ingreso</button>
+      <button type="button" data-type="transfer" aria-pressed="${t.type === 'transfer'}">↔ Mover</button>
+    </div>
     ${amountField(t.amount)}
-    <div class="catgrid" id="s-cats">${catGrid(t.type, t.cat)}</div>
-    <div class="field"><label for="s-note">Nota</label><input id="s-note" maxlength="80" placeholder="Ej: almuerzo, Netflix, nómina…" value="${esc(t.note || '')}"></div>
+    <div id="s-normal">
+      <div class="field"><label id="s-acc-l"></label>
+        <div class="seg acc-seg" id="s-acc">${ACCOUNTS.map(a => `<button type="button" data-acc="${a.id}" aria-pressed="${t.acc === a.id}">${a.emoji} ${esc(a.name)}</button>`).join('')}</div>
+      </div>
+      <div class="catgrid" id="s-cats">${t.type === 'transfer' ? '' : catGrid(t.type, t.cat)}</div>
+    </div>
+    <div id="s-xfer">
+      <div class="chips" id="s-xpre">
+        <button type="button" class="chip" data-xpre="tarjeta">🏧 Sacar efectivo</button>
+        <button type="button" class="chip" data-xpre="efectivo">🏦 Ingresar efectivo</button>
+      </div>
+      <div class="flow"><div class="end" id="s-from"></div><button type="button" class="swap" id="s-swap" aria-label="Invertir dirección">⇄</button><div class="end" id="s-to"></div></div>
+      <p class="hint">Mover dinero entre tarjeta y efectivo no cuenta como gasto ni como ingreso: solo cambia dónde está.</p>
+    </div>
+    <div class="field"><label for="s-note">Nota</label><input id="s-note" maxlength="80" value="${esc(t.note || '')}"></div>
     <div class="field"><label for="s-date">Fecha</label><input type="date" id="s-date" value="${t.date}"></div>
-    ${isNew ? `<label class="switch-row"><span>Repetir cada mes<small>Se registrará solo el mismo día cada mes</small></span><input type="checkbox" class="switch" id="s-rec"></label>`
-            : t.rec ? `<p class="hint">↻ Creado por un movimiento recurrente. Editarlo aquí solo cambia este mes.</p>` : ''}
+    ${isNew ? `<label class="switch-row" id="s-rec-row"><span>Repetir cada mes<small>Se registrará solo el mismo día cada mes</small></span><input type="checkbox" class="switch" id="s-rec"></label>`
+            : t.rec && t.type !== 'transfer' ? `<p class="hint">↻ Creado por un movimiento recurrente. Editarlo aquí solo cambia este mes.</p>` : ''}
     <button class="btn primary block" id="s-save">${isNew ? 'Agregar' : 'Guardar cambios'}</button>
     ${isNew ? '' : `<button class="btn danger block" id="s-del">Eliminar movimiento</button>`}
   `, sh => {
@@ -1582,43 +1769,87 @@ function openTxSheet(tx) {
     if (isNew) setTimeout(() => amt.focus(), 50);
     const orow = sh.querySelector('#s-opening');
     if (orow) orow.onclick = () => openOpeningSheet();
-    sh.querySelector('#s-type').onclick = e => {
-      const b = e.target.closest('[data-type]'); if (!b) return;
+    const $s = sel => sh.querySelector(sel);
+
+    // Muestra lo que corresponde a gasto/ingreso o a mover dinero entre cuentas
+    const sync = () => {
+      const xfer = t.type === 'transfer';
+      $s('#s-normal').hidden = xfer;
+      $s('#s-xfer').hidden = !xfer;
+      if ($s('#s-rec-row')) $s('#s-rec-row').hidden = xfer;
+      $s('#s-acc-l').textContent = t.type === 'ingreso' ? '¿Dónde lo recibiste?' : '¿Cómo pagaste?';
+      $s('#s-note').placeholder = xfer ? 'Ej: cajero del banco' : t.type === 'ingreso' ? 'Ej: nómina, venta…' : 'Ej: almuerzo, Netflix…';
+      const f = accOf(t.from), to = accOf(t.to);
+      $s('#s-from').innerHTML = `<small>Desde</small>${f.emoji} ${esc(f.name)}`;
+      $s('#s-to').innerHTML = `<small>Hacia</small>${to.emoji} ${esc(to.name)}`;
+      sh.querySelectorAll('#s-xpre button').forEach(b => b.setAttribute('aria-pressed', b.dataset.xpre === t.from));
+    };
+    sync();
+
+    $s('#s-type').onclick = e => {
+      const b = e.target.closest('[data-type]');
+      if (!b || b.dataset.type === t.type) return;
       t.type = b.dataset.type;
       sh.querySelectorAll('#s-type button').forEach(x => x.setAttribute('aria-pressed', x === b));
-      t.cat = (state.cats.find(c => c.type === t.type) || {}).name || '';
-      sh.querySelector('#s-cats').innerHTML = catGrid(t.type, t.cat);
+      if (t.type !== 'transfer') { t.cat = firstCat(t.type); $s('#s-cats').innerHTML = catGrid(t.type, t.cat); }
+      sync();
     };
-    sh.querySelector('#s-cats').onclick = e => {
+    $s('#s-acc').onclick = e => {
+      const b = e.target.closest('[data-acc]'); if (!b) return;
+      t.acc = b.dataset.acc;
+      sh.querySelectorAll('#s-acc button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    };
+    $s('#s-cats').onclick = e => {
       const b = e.target.closest('[data-cat]'); if (!b) return;
       t.cat = b.dataset.cat;
       sh.querySelectorAll('#s-cats button').forEach(x => x.setAttribute('aria-pressed', x === b));
     };
-    sh.querySelector('#s-save').onclick = () => {
+    $s('#s-xpre').onclick = e => {
+      const b = e.target.closest('[data-xpre]'); if (!b) return;
+      t.from = b.dataset.xpre; t.to = otherAcc(t.from); sync();
+    };
+    $s('#s-swap').onclick = () => { [t.from, t.to] = [t.to, t.from]; sync(); };
+
+    $s('#s-save').onclick = () => {
       const amount = parseAmount(amt.value);
       if (!(amount > 0)) { amt.focus(); return toast('Escribe un monto'); }
-      if (!t.cat) return toast('Elige una categoría');
-      const date = sh.querySelector('#s-date').value || today();
-      const note = sh.querySelector('#s-note').value.trim();
-      if (isNew) {
-        const nt = { id: uid(), type: t.type, amount, cat: t.cat, date, note };
-        if (sh.querySelector('#s-rec').checked) {
-          const r = { id: uid(), type: t.type, amount, cat: t.cat, note, day: +date.slice(8), start: monthOf(date), last: monthOf(date), active: true };
-          state.recs.push(r); nt.rec = r.id;
+      const date = $s('#s-date').value || today();
+      const note = $s('#s-note').value.trim();
+      if (t.type === 'transfer') {
+        const data = { type: 'transfer', amount, from: t.from, to: t.to, date, note };
+        if (isNew) state.txs.push({ id: uid(), ...data });
+        else {
+          const x = state.txs.find(x => x.id === tx.id);
+          Object.assign(x, data);
+          delete x.cat; delete x.acc; delete x.rec;
         }
-        state.txs.push(nt);
-        lastType = t.type;
-        const added = applyRecurring();
-        toast((t.type === 'gasto' ? 'Gasto registrado' : 'Ingreso registrado') + (added ? ` · +${added} recurrentes` : ''));
+        toast(isNew ? (t.to === 'efectivo' ? 'Retiro de efectivo registrado' : 'Ingreso de efectivo registrado') : 'Cambios guardados');
       } else {
-        Object.assign(state.txs.find(x => x.id === tx.id), { type: t.type, amount, cat: t.cat, date, note });
-        toast('Cambios guardados');
+        if (!t.cat) return toast('Elige una categoría');
+        const data = { type: t.type, amount, cat: t.cat, date, note, acc: t.acc };
+        state.lastAcc = t.acc;
+        if (isNew) {
+          const nt = { id: uid(), ...data };
+          if ($s('#s-rec').checked) {
+            const r = { id: uid(), type: t.type, amount, cat: t.cat, note, acc: t.acc, day: +date.slice(8), start: monthOf(date), last: monthOf(date), active: true };
+            state.recs.push(r); nt.rec = r.id;
+          }
+          state.txs.push(nt);
+          lastType = t.type;
+          const added = applyRecurring();
+          toast((t.type === 'gasto' ? 'Gasto registrado' : 'Ingreso registrado') + (added ? ` · +${added} recurrentes` : ''));
+        } else {
+          const x = state.txs.find(x => x.id === tx.id);
+          Object.assign(x, data);
+          delete x.from; delete x.to;
+          toast('Cambios guardados');
+        }
       }
       save();
       if (monthOf(date) !== curMonth) curMonth = monthOf(date);
       closeSheet(); render();
     };
-    const del = sh.querySelector('#s-del');
+    const del = $s('#s-del');
     if (del) del.onclick = () => {
       const old = state.txs.find(x => x.id === tx.id);
       state.txs = state.txs.filter(x => x.id !== tx.id);
@@ -1640,7 +1871,7 @@ function openRecSheet(rec, kind) {
   const r = rec ? { ...rec, freq: rec.freq || 'month' } : {
     type: kind === 'ingreso' ? 'ingreso' : 'gasto',
     cat: kind === 'sub' ? 'Suscripciones' : (state.cats.find(c => c.type === (kind === 'ingreso' ? 'ingreso' : 'gasto') && c.name !== 'Suscripciones') || {}).name || '',
-    note: '', amount: '', freq: 'month', emoji: '', active: true,
+    note: '', amount: '', freq: 'month', emoji: '', active: true, acc: 'tarjeta',
   };
   const sub = isSub(r);
   const title = isNew ? (sub ? 'Nueva suscripción' : kind === 'ingreso' ? 'Nuevo ingreso fijo' : 'Nuevo gasto fijo')
@@ -1653,6 +1884,8 @@ function openRecSheet(rec, kind) {
     <div class="field"><label for="s-note">Nombre</label><input id="s-note" maxlength="60" value="${esc(r.note || '')}" placeholder="${sub ? 'Ej: Netflix' : r.type === 'ingreso' ? 'Ej: Nómina' : 'Ej: Alquiler'}"></div>
     ${amountField(r.amount)}
     <div class="seg" id="s-freq"><button type="button" data-freq="month" aria-pressed="${r.freq !== 'year'}">Mensual</button><button type="button" data-freq="year" aria-pressed="${r.freq === 'year'}">Anual</button></div>
+    <div class="field"><label>${r.type === 'ingreso' ? '¿Dónde lo recibes?' : '¿Cómo se paga?'}</label>
+      <div class="seg acc-seg" id="s-acc">${ACCOUNTS.map(a => `<button type="button" data-acc="${a.id}" aria-pressed="${(r.acc || 'tarjeta') === a.id}">${a.emoji} ${esc(a.name)}</button>`).join('')}</div></div>
     ${sub ? '' : `<div class="catgrid" id="s-cats">${catGrid(r.type, r.cat)}</div>`}
     <div class="field"><label for="s-date">Próximo cobro</label><input type="date" id="s-date" value="${dateVal}"></div>
     ${isNew ? `<p class="hint">Si la fecha es hoy o ya pasó, el cobro se registra de inmediato.</p>`
@@ -1680,6 +1913,11 @@ function openRecSheet(rec, kind) {
       r.freq = b.dataset.freq;
       sh.querySelectorAll('#s-freq button').forEach(x => x.setAttribute('aria-pressed', x === b));
     };
+    sh.querySelector('#s-acc').onclick = e => {
+      const b = e.target.closest('[data-acc]'); if (!b) return;
+      r.acc = b.dataset.acc;
+      sh.querySelectorAll('#s-acc button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    };
     const cats = sh.querySelector('#s-cats');
     if (cats) cats.onclick = e => {
       const b = e.target.closest('[data-cat]'); if (!b) return;
@@ -1696,7 +1934,7 @@ function openRecSheet(rec, kind) {
       if (!date) return toast('Elige la fecha del próximo cobro');
       if (!r.cat) return toast('Elige una categoría');
       if (isNew) {
-        const nr = { id: uid(), type: r.type, amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active: true };
+        const nr = { id: uid(), type: r.type, amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active: true, acc: r.acc || 'tarjeta' };
         setNextCharge(nr, date);
         state.recs.push(nr);
         const n = applyRecurring();
@@ -1707,7 +1945,7 @@ function openRecSheet(rec, kind) {
       const t = state.recs.find(x => x.id === rec.id);
       const active = sh.querySelector('#s-active').checked;
       const freqChanged = (t.freq || 'month') !== r.freq;
-      Object.assign(t, { amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active });
+      Object.assign(t, { amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active, acc: r.acc || 'tarjeta' });
       if (date !== dateVal || freqChanged) setNextCharge(t, date);
       else if (active && !rec.active) {
         // Al reactivar no se cobran los meses en pausa: salta al próximo cobro desde hoy
@@ -1795,62 +2033,92 @@ function openingRow() {
   const o = state.opening;
   return `<button type="button" class="opening-row" id="s-opening">
     <span class="e">🏦</span>
-    <span class="m"><b>Saldo inicial</b><span>${o ? `${esc(money(o.amount))} · desde el ${esc(shortDate(o.date))}` : 'Aún no lo has definido'}</span></span>
+    <span class="m"><b>Saldos iniciales</b><span>${o
+      ? `${ACCOUNTS.map(a => `${a.emoji} ${esc(money(openingOf(a.id)))}`).join(' · ')} · desde el ${esc(shortDate(o.date))}`
+      : 'Tarjeta y efectivo: aún no los has definido'}</span></span>
     <span class="go">${o ? 'Modificar' : 'Definir'} ›</span>
   </button>`;
 }
+// Saldo inicial de cada cuenta (tarjeta y efectivo) en una misma fecha de inicio
 function openOpeningSheet() {
   const o = state.opening;
+  const sign = Object.fromEntries(ACCOUNTS.map(a => [a.id, o && openingOf(a.id) < 0 ? -1 : 1]));
+  const after = /^\d/.test(money(1));
+  const sym = `<span class="cur">${esc(curSymbol())}</span>`;
+  const shown = n => !n ? '' : zeroDec() || Number.isInteger(n) ? String(Math.abs(Math.round(n))) : Math.abs(n).toFixed(2).replace('.', ',');
   openSheet(`
-    <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>Saldo inicial</h3><span style="width:70px"></span></div>
-    <p class="hint" style="margin:0 4px 6px">Es el dinero que tenías (en tu cuenta y en efectivo) en la fecha que elijas. Desde ahí la app suma tus ingresos y resta tus gastos para mostrarte tu <b>saldo disponible</b>.</p>
-    ${amountField(o ? Math.abs(o.amount) : '')}
-    <label class="switch-row"><span>Saldo negativo<small>Si tu cuenta estaba en descubierto</small></span><input type="checkbox" class="switch" id="o-neg" ${o && o.amount < 0 ? 'checked' : ''}></label>
-    <div class="field"><label for="o-date">Fecha de ese saldo</label><input type="date" id="o-date" value="${o ? o.date : today()}"></div>
+    <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>Saldos iniciales</h3><span style="width:70px"></span></div>
+    <p class="hint" style="margin:0 4px 12px">Cuánto dinero tenías en cada sitio en la fecha que elijas. Desde ahí la app suma tus ingresos y resta tus gastos de cada uno para mostrarte cuánto te queda.</p>
+    <div class="field"><label for="o-date">Fecha de esos saldos</label><input type="date" id="o-date" value="${o ? o.date : today()}"></div>
+    ${ACCOUNTS.map(a => `<div class="o-acc">
+      <span class="h">${a.emoji} ${esc(a.name)}</span>
+      <span class="o-in">
+        <button type="button" class="sign ${sign[a.id] < 0 ? 'neg' : ''}" data-sign="${a.id}" aria-label="Cambiar signo de ${esc(a.name)}">${sign[a.id] < 0 ? '−' : '+'}</button>
+        ${after ? '' : sym}<input class="inp" inputmode="decimal" autocomplete="off" id="o-${a.id}" placeholder="0" value="${o ? shown(openingOf(a.id)) : ''}" aria-label="Saldo inicial de ${esc(a.name)}">${after ? sym : ''}
+      </span>
+    </div>`).join('')}
+    <p class="hint" style="margin:-2px 4px 12px">Toca <b>+</b> para ponerlo en negativo si la tarjeta estaba en descubierto.</p>
     <div class="card" style="background:var(--surface-2);margin:0;padding:12px 14px">
       <div class="w-row" style="margin:0"><span>Saldo disponible hoy</span><b id="o-prev">—</b></div>
-      <div class="muted" style="font-size:12px;margin-top:4px" id="o-note"></div>
+      <div class="w-row" style="margin:4px 0 0" id="o-split"></div>
+      <div class="muted" style="font-size:12px;margin-top:6px" id="o-note"></div>
     </div>
-    <button class="btn primary block" id="o-save">Guardar saldo inicial</button>
-    ${o ? `<button class="btn danger block" id="o-del">Quitar saldo inicial</button>` : ''}
+    <button class="btn primary block" id="o-save">Guardar saldos iniciales</button>
+    ${o ? `<button class="btn danger block" id="o-del">Quitar saldos iniciales</button>` : ''}
   `, sh => {
-    const amt = wireAmount(sh), neg = sh.querySelector('#o-neg'), dateInp = sh.querySelector('#o-date');
-    if (!o) setTimeout(() => amt.focus(), 50);
+    const dateInp = sh.querySelector('#o-date');
+    const inputs = Object.fromEntries(ACCOUNTS.map(a => [a.id, sh.querySelector(`#o-${a.id}`)]));
+    if (!o) setTimeout(() => inputs.tarjeta.focus(), 50);
     const read = () => {
-      const v = parseAmount(amt.value || '0');
-      return Number.isFinite(v) && v >= 0 ? { amount: neg.checked ? -v : v, date: dateInp.value || today() } : null;
+      const amounts = {};
+      for (const a of ACCOUNTS) {
+        const v = parseAmount(inputs[a.id].value || '0');
+        if (!Number.isFinite(v) || v < 0) return null;
+        amounts[a.id] = sign[a.id] * v;
+      }
+      return { date: dateInp.value || today(), amounts };
     };
-    // Vista previa: cómo quedaría el saldo de hoy con este saldo inicial
+    // Vista previa: cómo quedarían los saldos de hoy con estos saldos iniciales
     const preview = () => {
       const r = read(), now = today();
-      if (!r) { sh.querySelector('#o-prev').textContent = '—'; return; }
+      const prev = sh.querySelector('#o-prev'), split = sh.querySelector('#o-split'), note = sh.querySelector('#o-note');
+      if (!r || r.date > now) {
+        prev.textContent = '—'; split.innerHTML = '';
+        note.textContent = !r ? 'Revisa los montos.' : 'La fecha es futura: los saldos empezarán a contar ese día.';
+        return;
+      }
       const after = state.txs.filter(t => t.date >= r.date && t.date <= now);
-      const bal = r.amount + after.reduce((s, t) => s + (t.type === 'ingreso' ? t.amount : -t.amount), 0);
+      const bal = acc => (acc ? r.amounts[acc] : Object.values(r.amounts).reduce((s, v) => s + v, 0)) + after.reduce((s, t) => s + txDelta(t, acc), 0);
+      prev.textContent = money(bal());
+      prev.className = bal() < 0 ? 'neg' : '';
+      split.innerHTML = ACCOUNTS.map(a => `<span>${a.emoji} ${esc(a.name)} <b class="${bal(a.id) < 0 ? 'neg' : ''}">${esc(money(bal(a.id)))}</b></span>`).join('');
       const before = state.txs.filter(t => t.date < r.date).length;
-      const prev = sh.querySelector('#o-prev');
-      prev.textContent = r.date > now ? '—' : money(bal);
-      prev.className = bal < 0 && r.date <= now ? 'neg' : '';
-      sh.querySelector('#o-note').textContent = r.date > now
-        ? 'La fecha es futura: tu saldo empezará a contar ese día.'
-        : `Se ${after.length === 1 ? 'suma 1 movimiento' : `suman ${after.length} movimientos`} desde esa fecha.` +
-          (before ? ` Los ${before} anteriores no cuentan (ya están dentro de este saldo).` : '');
+      note.textContent = `Se ${after.length === 1 ? 'suma 1 movimiento' : `suman ${after.length} movimientos`} desde esa fecha.` +
+        (before ? ` Los ${before} anteriores no cuentan (ya están dentro de estos saldos).` : '');
     };
-    [amt, dateInp].forEach(el => el.addEventListener('input', preview));
-    neg.addEventListener('change', preview);
+    Object.values(inputs).forEach(el => el.addEventListener('input', preview));
+    dateInp.addEventListener('input', preview);
+    sh.querySelectorAll('[data-sign]').forEach(b => b.onclick = () => {
+      const id = b.dataset.sign;
+      sign[id] = -sign[id];
+      b.textContent = sign[id] < 0 ? '−' : '+';
+      b.classList.toggle('neg', sign[id] < 0);
+      preview();
+    });
     preview();
     sh.querySelector('#o-save').onclick = () => {
       const r = read();
-      if (!r) { amt.focus(); return toast('Escribe un monto válido'); }
+      if (!r) return toast('Escribe montos válidos');
       state.opening = r;
       save(); closeSheet(); render();
-      toast('Saldo inicial guardado');
+      toast('Saldos iniciales guardados');
     };
     const del = sh.querySelector('#o-del');
     if (del) del.onclick = () => {
       const old = state.opening;
       state.opening = null;
       save(); closeSheet(); render();
-      toast('Saldo inicial quitado', () => { state.opening = old; save(); render(); });
+      toast('Saldos iniciales quitados', () => { state.opening = old; save(); render(); });
     };
   });
 }
@@ -2117,12 +2385,14 @@ $('fab').onclick = () => {
 };
 $('tx-mode').onclick = e => { const b = e.target.closest('[data-mode]'); if (b) { txMode = b.dataset.mode; render(); } };
 $('tx-filter').onclick = e => { const b = e.target.closest('[data-f]'); if (b) { txFilter = b.dataset.f; renderTx(); } };
+$('tx-acc').onclick = e => { const b = e.target.closest('[data-a]'); if (b) { txAcc = b.dataset.a; renderTx(); } };
 $('search').addEventListener('input', () => renderTx());
 
 document.querySelector('main').addEventListener('click', e => {
-  const el = e.target.closest('[data-edit],[data-rec],[data-delrec],[data-newrec],[data-goal],[data-contrib],[data-withdraw],[data-goto],[data-delcat],[data-month],[data-customize],[data-opening],button[id]');
+  const el = e.target.closest('[data-edit],[data-rec],[data-delrec],[data-newrec],[data-goal],[data-contrib],[data-withdraw],[data-goto],[data-delcat],[data-month],[data-customize],[data-opening],[data-xfer],button[id]');
   if (!el) return;
   const d = el.dataset;
+  if (d.xfer) return openTxSheet(null, { type: 'transfer', from: d.xfer });
   if (d.customize !== undefined) return openWidgetsSheet();
   if (d.opening !== undefined) return openOpeningSheet();
   if (d.newrec) return openRecSheet(null, d.newrec);
@@ -2311,8 +2581,10 @@ function openRestoreSheet() {
 }
 function exportCsv() {
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = ['fecha,tipo,categoria,monto,nota', ...[...state.txs].sort((a, b) => a.date.localeCompare(b.date))
-    .map(t => [t.date, t.type, q(t.cat), t.amount, q(t.note)].join(','))];
+  const lines = ['fecha,tipo,categoria,cuenta,monto,nota', ...[...state.txs].sort((a, b) => a.date.localeCompare(b.date))
+    .map(t => t.type === 'transfer'
+      ? [t.date, 'movimiento entre cuentas', '', q(`${accOf(t.from).name} → ${accOf(t.to).name}`), t.amount, q(t.note)].join(',')
+      : [t.date, t.type, q(t.cat), q(accOf(t.acc).name), t.amount, q(t.note)].join(','))];
   shareFile(`finanzas-${today()}.csv`, '﻿' + lines.join('\r\n'), 'text/csv');
 }
 
@@ -2322,20 +2594,21 @@ function loadDemo() {
   const k = state.currency === 'COP' ? 1000 : state.currency === 'CLP' ? 900 : 1;
   const rnd = (a, b) => { const v = (a + Math.random() * (b - a)) * k; return k > 1 ? Math.round(v / 100) * 100 : Math.round(v * 100) / 100; };
   const d = +today().slice(8);
+  const fx = v => k > 1 ? Math.round(v * k / 100) * 100 : v;
   for (let i = -5; i <= 0; i++) {
     const m = shiftMonth(base, i);
-    const add = (type, cat, amount, day, note) => { if (i === 0 && day > d) return; state.txs.push({ id: uid(), type, cat, amount, date: `${m}-${pad(day)}`, note }); };
+    const add = (type, cat, amount, day, note, acc = 'tarjeta') => { if (i === 0 && day > d) return; state.txs.push({ id: uid(), type, cat, amount, date: `${m}-${pad(day)}`, note, acc }); };
+    if (!(i === 0 && 3 > d)) state.txs.push({ id: uid(), type: 'transfer', amount: fx(150), from: 'tarjeta', to: 'efectivo', date: `${m}-03`, note: 'Cajero' });
     if (Math.random() > .4) add('ingreso', 'Freelance', rnd(300, 900), 15, 'Proyecto');
     add('gasto', 'Servicios', rnd(150, 220), 5, 'Luz, agua e internet');
-    for (let j = 0; j < 6; j++) add('gasto', 'Comida', rnd(40, 120), 2 + j * 4, j % 2 ? 'Mercado' : 'Restaurante');
-    add('gasto', 'Transporte', rnd(120, 200), 10, 'Recargas');
-    add('gasto', 'Ocio', rnd(80, 260), 20, 'Salidas');
+    for (let j = 0; j < 6; j++) add('gasto', 'Comida', rnd(j % 2 ? 40 : 15, j % 2 ? 120 : 35), 2 + j * 4, j % 2 ? 'Mercado' : 'Café y almuerzo', j % 2 ? 'tarjeta' : 'efectivo');
+    add('gasto', 'Transporte', rnd(30, 60), 10, 'Bus y metro', 'efectivo');
+    add('gasto', 'Ocio', rnd(80, 260), 20, 'Salidas', Math.random() > .5 ? 'efectivo' : 'tarjeta');
     if (Math.random() > .5) add('gasto', 'Compras', rnd(100, 400), 24, 'Ropa');
   }
   const start = shiftMonth(base, -5);
   const monthly = (type, amount, cat, note, day, emoji = '') =>
-    ({ id: uid(), type, amount, cat, note, emoji, day, freq: 'month', start, last: shiftMonth(start, -1), active: true });
-  const fx = v => k > 1 ? Math.round(v * k / 100) * 100 : v;
+    ({ id: uid(), type, amount, cat, note, emoji, day, freq: 'month', start, last: shiftMonth(start, -1), active: true, acc: 'tarjeta' });
   const primeStart = shiftMonth(base, -2);
   state.recs.push(
     monthly('ingreso', fx(2400), 'Salario', 'Nómina', 1),
