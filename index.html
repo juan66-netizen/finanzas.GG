@@ -170,6 +170,10 @@ main {
 .o-in .sign { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 800; font-size: 17px; flex: none; }
 .o-in .sign.neg { color: var(--bad-text); border-color: var(--bad-text); }
 .o-in .cur { color: var(--muted); font-weight: 600; }
+.stepper { display: flex; align-items: center; justify-content: space-between; background: var(--surface-2); border-radius: 14px; padding: 6px; }
+.stepper button { width: 52px; height: 44px; border-radius: 10px; border: 0; background: var(--surface); color: var(--text); font-size: 24px; font-weight: 700; }
+.stepper button:disabled { opacity: .35; }
+.stepper span { font-size: 20px; font-weight: 750; }
 .opening-row { display: flex; align-items: center; gap: 10px; width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; margin-bottom: 12px; text-align: left; color: var(--text); }
 .opening-row .e { font-size: 22px; }
 .opening-row .m { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 15px; }
@@ -1520,7 +1524,8 @@ function recRow(r) {
     <button class="item-btn" data-rec="${r.id}" aria-label="Editar ${esc(r.note || r.cat)}">
       <span class="ico">${esc(recEmoji(r))}</span>
       <span class="main"><span class="t" style="display:block">${esc(r.note || r.cat)}</span>
-      <span class="s" style="display:block">${accOf(r.acc).emoji} ${when} · ${r.active ? 'próximo ' + esc(nd) : 'en pausa'}</span></span>
+      <span class="s" style="display:block">${accOf(r.acc).emoji} ${when} · ${r.active ? 'próximo ' + esc(nd) : 'en pausa'}</span>
+      ${r.last && r.last > monthOf(today()) ? `<span class="s" style="display:block;color:var(--good-text)">⏩ ${r.type === 'ingreso' ? 'Cobrado' : 'Pagado'} por adelantado hasta ${esc(monthLbl(r.last))}</span>` : ''}</span>
       <span style="text-align:right"><span class="amt ${r.type === 'ingreso' ? 'pos' : ''}" style="display:block">${r.type === 'ingreso' ? '+' : '−'}${esc(money(r.amount))}</span>
       ${r.freq === 'year' ? `<span class="s num" style="display:block;font-size:12px">${esc(money(recMonthly(r)))}/mes</span>` : ''}</span>
     </button>
@@ -1761,6 +1766,7 @@ function openTxSheet(tx, preset = {}) {
     <div class="field"><label for="s-note">Nota</label><input id="s-note" maxlength="80" value="${esc(t.note || '')}"></div>
     <div class="field"><label for="s-date">Fecha</label><input type="date" id="s-date" value="${t.date}"></div>
     ${isNew ? `<label class="switch-row" id="s-rec-row"><span>Repetir cada mes<small>Se registrará solo el mismo día cada mes</small></span><input type="checkbox" class="switch" id="s-rec"></label>`
+            : t.adv ? `<p class="hint">⏩ Adelanto de ${t.adv.months.length} ${t.adv.months.length === 1 ? 'cobro' : 'cobros'} (${esc(t.adv.months.map(monthLbl).join(', '))}). Si lo eliminas, esos meses volverán a registrarse solos.</p>`
             : t.rec && t.type !== 'transfer' ? `<p class="hint">↻ Creado por un movimiento recurrente. Editarlo aquí solo cambia este mes.</p>` : ''}
     <button class="btn primary block" id="s-save">${isNew ? 'Agregar' : 'Guardar cambios'}</button>
     ${isNew ? '' : `<button class="btn danger block" id="s-del">Eliminar movimiento</button>`}
@@ -1852,6 +1858,15 @@ function openTxSheet(tx, preset = {}) {
     const del = $s('#s-del');
     if (del) del.onclick = () => {
       const old = state.txs.find(x => x.id === tx.id);
+      if (old.adv) {
+        if (!confirm(`Este movimiento es un adelanto (${old.adv.months.map(monthLbl).join(', ')}).\n\nSi lo eliminas, esos meses volverán a quedar pendientes y se registrarán solos en su fecha. ¿Eliminar?`)) return;
+        state.txs = state.txs.filter(x => x.id !== tx.id);
+        const rule = state.recs.find(x => x.id === old.adv.recId);
+        if (rule && rule.last === old.adv.newLast) rule.last = old.adv.prevLast;
+        applyRecurring(); save(); closeSheet(); render();
+        toast('Adelanto eliminado');
+        return;
+      }
       state.txs = state.txs.filter(x => x.id !== tx.id);
       save(); closeSheet(); render();
       toast('Movimiento eliminado', () => { state.txs.push(old); save(); render(); });
@@ -1892,6 +1907,8 @@ function openRecSheet(rec, kind) {
       : `<label class="switch-row"><span>Activa<small>Pausa sin borrarla</small></span><input type="checkbox" class="switch" id="s-active" ${r.active ? 'checked' : ''}></label>
          <p class="hint">Los cambios aplican a los próximos cobros; lo ya registrado no cambia.</p>`}
     <button class="btn primary block" id="s-save">${isNew ? 'Agregar' : 'Guardar cambios'}</button>
+    ${isNew ? '' : `<button class="btn block" id="s-adv">⏩ ${r.type === 'ingreso' ? 'Registrar cobro adelantado' : 'Pagar por adelantado'}</button>
+      <p class="hint" style="margin:6px 4px 0">${r.type === 'ingreso' ? '¿Te pagaron varios meses juntos?' : '¿Pagaste varios meses de una vez?'} Regístralo aquí y esos meses no se contarán dos veces.</p>`}
     ${isNew ? '' : `<button class="btn danger block" id="s-del">Quitar ${sub ? 'suscripción' : 'este fijo'}</button>`}
   `, sh => {
     const amt = wireAmount(sh);
@@ -1958,8 +1975,89 @@ function openRecSheet(rec, kind) {
     };
     const del = sh.querySelector('#s-del');
     if (del) del.onclick = () => { closeSheet(); removeRec(rec.id); };
+    const advBtn = sh.querySelector('#s-adv');
+    if (advBtn) advBtn.onclick = () => openAdvanceSheet(state.recs.find(x => x.id === rec.id));
   });
 }
+/* Cobro o pago adelantado de un fijo: registra ahora varios meses juntos y
+   salta esos meses en los cobros automáticos (sin contarlos dos veces). */
+const monthLbl = ym => monthName(ym) + (ym.slice(0, 4) !== today().slice(0, 4) ? ' ' + ym.slice(0, 4) : '');
+const amtStr = n => zeroDec() || Number.isInteger(n) ? String(Math.round(n)) : n.toFixed(2).replace('.', ',');
+function openAdvanceSheet(r) {
+  const inc = r.type === 'ingreso', step = recStep(r), yearly = step === 12;
+  const first = nextChargeMonth(r);
+  const maxN = yearly ? 5 : 24;
+  let n = 1, edited = false, acc = r.acc || 'tarjeta';
+  const covered = () => Array.from({ length: n }, (_, i) => shiftMonth(first, i * step));
+  const range = () => { const c = covered(); return c.length === 1 ? monthLbl(c[0]) : `${monthLbl(c[0])} – ${monthLbl(c[c.length - 1])}`; };
+  const unit = k => yearly ? (k === 1 ? 'año' : 'años') : (k === 1 ? 'mes' : 'meses');
+  openSheet(`
+    <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>${inc ? 'Cobro adelantado' : 'Pago adelantado'}</h3><span style="width:70px"></span></div>
+    <div class="opening-row" style="cursor:default">
+      <span class="e">${esc(recEmoji(r))}</span>
+      <span class="m"><b>${esc(r.note || r.cat)}</b><span>${esc(money(r.amount))} ${yearly ? 'al año' : 'al mes'} · ${accOf(r.acc).emoji} ${esc(accOf(r.acc).name)}</span></span>
+    </div>
+    <div class="field"><label>${inc ? `¿Cuántos ${unit(2)} te adelantaron?` : `¿Cuántos ${unit(2)} pagaste por adelantado?`}</label>
+      <div class="stepper"><button type="button" data-d="-1" aria-label="Menos">−</button><span id="a-n"></span><button type="button" data-d="1" aria-label="Más">+</button></div>
+    </div>
+    <div class="card" style="background:var(--surface-2);margin:0 0 12px;padding:12px 14px">
+      <div class="w-row" style="margin:0"><span>Cubre</span><b id="a-range"></b></div>
+      <div class="muted" style="font-size:12px;margin-top:4px" id="a-next"></div>
+    </div>
+    <div class="field"><label>${inc ? 'Total recibido' : 'Total pagado'}</label></div>
+    ${amountField(r.amount)}
+    <div class="field"><label>${inc ? '¿Dónde lo recibiste?' : '¿Cómo pagaste?'}</label>
+      <div class="seg acc-seg" id="a-acc">${ACCOUNTS.map(a => `<button type="button" data-acc="${a.id}" aria-pressed="${acc === a.id}">${a.emoji} ${esc(a.name)}</button>`).join('')}</div>
+    </div>
+    <div class="field"><label for="a-date">${inc ? 'Fecha en que lo recibiste' : 'Fecha del pago'}</label><input type="date" id="a-date" value="${today()}"></div>
+    <div class="field"><label for="a-note">Nota</label><input id="a-note" maxlength="80"></div>
+    <button class="btn primary block" id="a-save">Registrar adelanto</button>
+  `, sh => {
+    const amt = wireAmount(sh);
+    let syncing = false;   // true mientras la app rellena el total sola
+    amt.addEventListener('input', () => { if (!syncing) edited = true; });
+    const update = () => {
+      const c = covered();
+      sh.querySelector('#a-n').textContent = `${n} ${unit(n)}`;
+      sh.querySelector('[data-d="-1"]').disabled = n <= 1;
+      sh.querySelector('[data-d="1"]').disabled = n >= maxN;
+      sh.querySelector('#a-range').textContent = range();
+      const nextYm = shiftMonth(c[c.length - 1], step);
+      const nextDate = `${nextYm}-${pad(Math.min(r.day, daysInMonth(nextYm)))}`;
+      sh.querySelector('#a-next').textContent = `Esos ${unit(n === 1 ? 1 : 2)} no se volverán a registrar solos. El siguiente cobro automático será el ${new Date(nextDate + 'T12:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })}.`;
+      sh.querySelector('#a-note').placeholder = `Adelanto ${r.note || r.cat} (${range()})`;
+      // El total sigue a los meses elegidos hasta que la persona lo cambie a mano
+      if (!edited) { syncing = true; amt.value = amtStr(r.amount * n); amt.dispatchEvent(new Event('input')); syncing = false; }
+    };
+    update();
+    sh.querySelector('.stepper').onclick = e => {
+      const b = e.target.closest('[data-d]'); if (!b) return;
+      n = Math.max(1, Math.min(maxN, n + +b.dataset.d));
+      update();
+    };
+    sh.querySelector('#a-acc').onclick = e => {
+      const b = e.target.closest('[data-acc]'); if (!b) return;
+      acc = b.dataset.acc;
+      sh.querySelectorAll('#a-acc button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    };
+    sh.querySelector('#a-save').onclick = () => {
+      const amount = parseAmount(amt.value);
+      if (!(amount > 0)) { amt.focus(); return toast('Escribe el total'); }
+      const c = covered(), newLast = c[c.length - 1];
+      const rule = state.recs.find(x => x.id === r.id);
+      state.txs.push({
+        id: uid(), type: r.type, amount, cat: r.cat, acc,
+        date: sh.querySelector('#a-date').value || today(),
+        note: sh.querySelector('#a-note').value.trim() || `Adelanto ${r.note || r.cat} (${range()})`,
+        rec: r.id, adv: { recId: r.id, prevLast: rule.last || null, newLast, months: c },
+      });
+      rule.last = newLast;   // los cobros automáticos siguen después del último mes cubierto
+      save(); closeSheet(); render();
+      toast(`Adelanto registrado · ${n} ${unit(n)} cubiertos`);
+    };
+  });
+}
+
 function removeRec(id) {
   const i = state.recs.findIndex(x => x.id === id);
   if (i < 0) return;
