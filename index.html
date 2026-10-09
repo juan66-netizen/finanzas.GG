@@ -170,6 +170,12 @@ main {
 .o-in .sign { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 800; font-size: 17px; flex: none; }
 .o-in .sign.neg { color: var(--bad-text); border-color: var(--bad-text); }
 .o-in .cur { color: var(--muted); font-weight: 600; }
+.due-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.due-row + .due-row { border-top: 1px solid var(--border); }
+.due-row .e { font-size: 20px; width: 28px; text-align: center; flex: none; }
+.due-row .m { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 14px; }
+.due-row .m span { font-size: 12px; color: var(--muted); }
+.due-row .btn { min-height: 40px; padding: 0 14px; font-size: 14px; flex: none; }
 .stepper { display: flex; align-items: center; justify-content: space-between; background: var(--surface-2); border-radius: 14px; padding: 6px; }
 .stepper button { width: 52px; height: 44px; border-radius: 10px; border: 0; background: var(--surface); color: var(--text); font-size: 24px; font-weight: 700; }
 .stepper button:disabled { opacity: .35; }
@@ -821,7 +827,7 @@ function applyRecurring() {
   const now = today(), curYm = monthOf(now), d = +now.slice(8);
   let n = 0;
   for (const r of state.recs) {
-    if (!r.active) continue;
+    if (!r.active || r.confirm) continue;   // los fijos "con confirmación" esperan a que los marques
     let ym = nextChargeMonth(r);
     while (ym <= curYm) {
       const day = Math.min(r.day, daysInMonth(ym));
@@ -833,6 +839,20 @@ function applyRecurring() {
   }
   if (n) save();
   return n;
+}
+// Meses de un fijo que tocan hasta `ym` y aún no están registrados
+function chargesUntil(r, ym) {
+  const out = [];
+  if (!r.active) return out;
+  for (let m = nextChargeMonth(r); m <= ym; m = shiftMonth(m, recStep(r))) out.push(m);
+  return out;
+}
+const chargeDate = (r, ym) => `${ym}-${pad(Math.min(r.day, daysInMonth(ym)))}`;
+// Cobros/pagos vencidos sin confirmar (solo fijos en modo "confirmar cada pago")
+function overdueCharges(r) {
+  if (!r.active || !r.confirm) return [];
+  const now = today();
+  return chargesUntil(r, monthOf(now)).filter(m => chargeDate(r, m) <= now);
 }
 
 /* =========================================================
@@ -912,6 +932,21 @@ function renderHome() {
       <button class="btn primary" style="min-height:40px;padding:0 14px" id="exp-json">Hacer</button>
       <button class="del" id="snooze-backup" aria-label="Recordar más tarde">✕</button>
     </div>`;
+  }
+
+  // Fijos vencidos sin confirmar (modo "confirmar cada pago"): siempre visibles arriba
+  const overdue = state.recs.flatMap(r => overdueCharges(r).map(ym => ({ r, ym })));
+  if (overdue.length) {
+    h += `<div class="card" style="border-color:color-mix(in srgb, var(--bad-text) 45%, transparent)">
+      <h2><span>⚠ ${overdue.length === 1 ? 'Tienes un fijo pendiente' : `Tienes ${overdue.length} fijos pendientes`}</span></h2>` +
+      overdue.slice(0, 6).map(({ r, ym }) => {
+        const inc = r.type === 'ingreso';
+        return `<div class="due-row">
+          <span class="e">${esc(recEmoji(r))}</span>
+          <span class="m"><b>${esc(r.note || r.cat)} · ${esc(monthLbl(ym))}</b><span>${inc ? 'Esperado' : 'Vencía'} el ${esc(shortDate(chargeDate(r, ym)))} · ${inc ? '+' : '−'}${esc(money(r.amount))}</span></span>
+          <button class="btn primary" data-pay="${r.id}">${inc ? 'Recibido' : 'Pagar'}</button>
+        </div>`;
+      }).join('') + `</div>`;
   }
 
   // Widgets en el orden y con la visibilidad que eligió la persona
@@ -1051,9 +1086,10 @@ function wRitmo({ yearMode, year, t }) {
 
   // Mes en curso
   const d = +now.slice(8), daysLeft = D - d;
-  const pend = state.recs.filter(r => r.active && nextChargeMonth(r) === ym);
-  const pendingFixed = sumAmt(pend.filter(r => r.type === 'gasto'));
-  const pendingInc = sumAmt(pend.filter(r => r.type === 'ingreso'));
+  // Lo que falta por cobrar/pagar este mes (incluye fijos vencidos sin confirmar)
+  const owed = type => state.recs.filter(r => r.type === type).reduce((s, r) => s + r.amount * chargesUntil(r, ym).length, 0);
+  const pendingFixed = owed('gasto');
+  const pendingInc = owed('ingreso');
   const base = budget || (t.inc + pendingInc);
   const baseTxt = budget ? 'tu presupuesto' : 'tus ingresos';
   if (!base) return card(title, emptyMsg('Define un presupuesto en Ajustes o registra tus ingresos para saber cuánto puedes gastar al día.'));
@@ -1091,7 +1127,8 @@ function wRitmo({ yearMode, year, t }) {
 function wProximos({ yearMode, isCur }) {
   if (yearMode || !isCur || !state.recs.some(r => r.active)) return '';
   const link = `<button class="link" data-goto="rec">Ver todos</button>`;
-  const up = state.recs.filter(r => r.active && nextChargeMonth(r) === curMonth).sort((a, b) => a.day - b.day);
+  const now = today();
+  const up = state.recs.filter(r => r.active && nextChargeMonth(r) === curMonth && chargeDate(r, curMonth) > now).sort((a, b) => a.day - b.day);
   if (!up.length) return card('Próximos cobros', emptyMsg('✓ No quedan cobros fijos pendientes este mes.'), link);
   const out = sumAmt(up.filter(r => r.type === 'gasto'));
   return card('Próximos cobros', up.slice(0, 5).map(r => `<div class="cat" style="grid-template-columns:30px 1fr auto;margin-bottom:10px"><span class="ico" style="grid-row:auto">${esc(recEmoji(r))}</span>
@@ -1524,7 +1561,8 @@ function recRow(r) {
     <button class="item-btn" data-rec="${r.id}" aria-label="Editar ${esc(r.note || r.cat)}">
       <span class="ico">${esc(recEmoji(r))}</span>
       <span class="main"><span class="t" style="display:block">${esc(r.note || r.cat)}</span>
-      <span class="s" style="display:block">${accOf(r.acc).emoji} ${when} · ${r.active ? 'próximo ' + esc(nd) : 'en pausa'}</span>
+      <span class="s" style="display:block">${accOf(r.acc).emoji} ${when}${r.confirm ? ' · ✋ con confirmación' : ''} · ${r.active ? 'próximo ' + esc(nd) : 'en pausa'}</span>
+      ${overdueCharges(r).length ? `<span class="s" style="display:block;color:var(--bad-text)">⚠ ${r.type === 'ingreso' ? 'Por cobrar' : 'Pendiente de pago'} desde el ${esc(shortDate(chargeDate(r, nextChargeMonth(r))))}</span>` : ''}
       ${r.last && r.last > monthOf(today()) ? `<span class="s" style="display:block;color:var(--good-text)">⏩ ${r.type === 'ingreso' ? 'Cobrado' : 'Pagado'} por adelantado hasta ${esc(monthLbl(r.last))}</span>` : ''}</span>
       <span style="text-align:right"><span class="amt ${r.type === 'ingreso' ? 'pos' : ''}" style="display:block">${r.type === 'ingreso' ? '+' : '−'}${esc(money(r.amount))}</span>
       ${r.freq === 'year' ? `<span class="s num" style="display:block;font-size:12px">${esc(money(recMonthly(r)))}/mes</span>` : ''}</span>
@@ -1764,10 +1802,11 @@ function openTxSheet(tx, preset = {}) {
       <p class="hint">Mover dinero entre tarjeta y efectivo no cuenta como gasto ni como ingreso: solo cambia dónde está.</p>
     </div>
     <div class="field"><label for="s-note">Nota</label><input id="s-note" maxlength="80" value="${esc(t.note || '')}"></div>
-    <div class="field"><label for="s-date">Fecha</label><input type="date" id="s-date" value="${t.date}"></div>
+    <div class="field"><label for="s-date" style="display:flex;justify-content:space-between;align-items:center">Fecha${isNew ? '' : `<button type="button" class="link" id="s-today" style="font-size:13px;padding:0;min-height:0">Fue hoy</button>`}</label><input type="date" id="s-date" value="${t.date}"></div>
     ${isNew ? `<label class="switch-row" id="s-rec-row"><span>Repetir cada mes<small>Se registrará solo el mismo día cada mes</small></span><input type="checkbox" class="switch" id="s-rec"></label>`
             : t.adv ? `<p class="hint">⏩ Adelanto de ${t.adv.months.length} ${t.adv.months.length === 1 ? 'cobro' : 'cobros'} (${esc(t.adv.months.map(monthLbl).join(', '))}). Si lo eliminas, esos meses volverán a registrarse solos.</p>`
-            : t.rec && t.type !== 'transfer' ? `<p class="hint">↻ Creado por un movimiento recurrente. Editarlo aquí solo cambia este mes.</p>` : ''}
+            : t.due ? `<p class="hint">✅ ${t.type === 'ingreso' ? 'Cobro' : 'Pago'} de un fijo confirmado por ti (vencía el ${esc(shortDate(t.due))}).</p>`
+            : t.rec && t.type !== 'transfer' ? `<p class="hint">↻ Registrado automáticamente en su fecha. Si en realidad ${t.type === 'ingreso' ? 'llegó' : 'lo pagaste'} otro día, cambia la fecha. Editarlo aquí solo cambia este mes.</p>` : ''}
     <button class="btn primary block" id="s-save">${isNew ? 'Agregar' : 'Guardar cambios'}</button>
     ${isNew ? '' : `<button class="btn danger block" id="s-del">Eliminar movimiento</button>`}
   `, sh => {
@@ -1776,6 +1815,8 @@ function openTxSheet(tx, preset = {}) {
     const orow = sh.querySelector('#s-opening');
     if (orow) orow.onclick = () => openOpeningSheet();
     const $s = sel => sh.querySelector(sel);
+    const todayBtn = $s('#s-today');
+    if (todayBtn) todayBtn.onclick = () => { $s('#s-date').value = today(); toast('Fecha cambiada a hoy: toca Guardar'); };
 
     // Muestra lo que corresponde a gasto/ingreso o a mover dinero entre cuentas
     const sync = () => {
@@ -1903,10 +1944,12 @@ function openRecSheet(rec, kind) {
       <div class="seg acc-seg" id="s-acc">${ACCOUNTS.map(a => `<button type="button" data-acc="${a.id}" aria-pressed="${(r.acc || 'tarjeta') === a.id}">${a.emoji} ${esc(a.name)}</button>`).join('')}</div></div>
     ${sub ? '' : `<div class="catgrid" id="s-cats">${catGrid(r.type, r.cat)}</div>`}
     <div class="field"><label for="s-date">Próximo cobro</label><input type="date" id="s-date" value="${dateVal}"></div>
-    ${isNew ? `<p class="hint">Si la fecha es hoy o ya pasó, el cobro se registra de inmediato.</p>`
+    <label class="switch-row"><span>${r.type === 'ingreso' ? 'Confirmar cada cobro' : 'Confirmar cada pago'}<small>En su fecha no se registra solo: te avisa en Inicio y lo marcas cuando de verdad ${r.type === 'ingreso' ? 'llegue' : 'lo pagues'}. Útil si a veces ${r.type === 'ingreso' ? 'te pagan' : 'pagas'} tarde.</small></span><input type="checkbox" class="switch" id="s-confirm" ${r.confirm ? 'checked' : ''}></label>
+    ${isNew ? `<p class="hint">Si la fecha es hoy o ya pasó, el cobro se registra de inmediato (o queda pendiente para confirmar, si activas la opción de arriba).</p>`
       : `<label class="switch-row"><span>Activa<small>Pausa sin borrarla</small></span><input type="checkbox" class="switch" id="s-active" ${r.active ? 'checked' : ''}></label>
          <p class="hint">Los cambios aplican a los próximos cobros; lo ya registrado no cambia.</p>`}
     <button class="btn primary block" id="s-save">${isNew ? 'Agregar' : 'Guardar cambios'}</button>
+    ${!isNew && r.confirm && r.active ? `<button class="btn block" id="s-pay">✅ ${r.type === 'ingreso' ? 'Registrar cobro' : 'Registrar pago'} de ${esc(monthLbl(nextChargeMonth(r)))}</button>` : ''}
     ${isNew ? '' : `<button class="btn block" id="s-adv">⏩ ${r.type === 'ingreso' ? 'Registrar cobro adelantado' : 'Pagar por adelantado'}</button>
       <p class="hint" style="margin:6px 4px 0">${r.type === 'ingreso' ? '¿Te pagaron varios meses juntos?' : '¿Pagaste varios meses de una vez?'} Regístralo aquí y esos meses no se contarán dos veces.</p>`}
     ${isNew ? '' : `<button class="btn danger block" id="s-del">Quitar ${sub ? 'suscripción' : 'este fijo'}</button>`}
@@ -1951,18 +1994,18 @@ function openRecSheet(rec, kind) {
       if (!date) return toast('Elige la fecha del próximo cobro');
       if (!r.cat) return toast('Elige una categoría');
       if (isNew) {
-        const nr = { id: uid(), type: r.type, amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active: true, acc: r.acc || 'tarjeta' };
+        const nr = { id: uid(), type: r.type, amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active: true, acc: r.acc || 'tarjeta', confirm: sh.querySelector('#s-confirm').checked };
         setNextCharge(nr, date);
         state.recs.push(nr);
         const n = applyRecurring();
         save(); closeSheet(); render();
-        toast(`${sub ? 'Suscripción agregada' : 'Fijo agregado'}${n ? ' · cobro registrado' : ''}`);
+        toast(`${sub ? 'Suscripción agregada' : 'Fijo agregado'}${n ? ' · cobro registrado' : overdueCharges(nr).length ? ' · pendiente de confirmar' : ''}`);
         return;
       }
       const t = state.recs.find(x => x.id === rec.id);
       const active = sh.querySelector('#s-active').checked;
       const freqChanged = (t.freq || 'month') !== r.freq;
-      Object.assign(t, { amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active, acc: r.acc || 'tarjeta' });
+      Object.assign(t, { amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active, acc: r.acc || 'tarjeta', confirm: sh.querySelector('#s-confirm').checked });
       if (date !== dateVal || freqChanged) setNextCharge(t, date);
       else if (active && !rec.active) {
         // Al reactivar no se cobran los meses en pausa: salta al próximo cobro desde hoy
@@ -1977,8 +2020,59 @@ function openRecSheet(rec, kind) {
     if (del) del.onclick = () => { closeSheet(); removeRec(rec.id); };
     const advBtn = sh.querySelector('#s-adv');
     if (advBtn) advBtn.onclick = () => openAdvanceSheet(state.recs.find(x => x.id === rec.id));
+    const payBtn = sh.querySelector('#s-pay');
+    if (payBtn) payBtn.onclick = () => openPaySheet(state.recs.find(x => x.id === rec.id));
   });
 }
+/* Confirmar el cobro/pago de un fijo (el más antiguo pendiente) con su fecha real.
+   También permite saltar ese mes si no aplica. */
+function openPaySheet(r) {
+  const inc = r.type === 'ingreso';
+  const ym = nextChargeMonth(r), due = chargeDate(r, ym);
+  const days = Math.round((new Date(today() + 'T12:00') - new Date(due + 'T12:00')) / 86400000);
+  const when = days > 0 ? `hace ${days} ${days === 1 ? 'día' : 'días'}` : days < 0 ? `en ${-days} ${days === -1 ? 'día' : 'días'}` : 'hoy';
+  let acc = r.acc || 'tarjeta';
+  openSheet(`
+    <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>${inc ? 'Confirmar cobro' : 'Confirmar pago'}</h3><span style="width:70px"></span></div>
+    <div class="opening-row" style="cursor:default">
+      <span class="e">${esc(recEmoji(r))}</span>
+      <span class="m"><b>${esc(r.note || r.cat)} · ${esc(monthLbl(ym))}</b><span>${inc ? 'Esperado' : 'Vencía'} el ${esc(shortDate(due))} (${when})</span></span>
+    </div>
+    ${amountField(r.amount)}
+    <div class="field"><label>${inc ? '¿Dónde lo recibiste?' : '¿Cómo pagaste?'}</label>
+      <div class="seg acc-seg" id="p-acc">${ACCOUNTS.map(a => `<button type="button" data-acc="${a.id}" aria-pressed="${acc === a.id}">${a.emoji} ${esc(a.name)}</button>`).join('')}</div>
+    </div>
+    <div class="field"><label for="p-date">${inc ? '¿Cuándo lo recibiste?' : '¿Cuándo lo pagaste?'}</label><input type="date" id="p-date" value="${today()}"></div>
+    <div class="field"><label for="p-note">Nota</label><input id="p-note" maxlength="80" value="${esc(r.note || '')}"></div>
+    <button class="btn primary block" id="p-save">${inc ? 'Marcar como recibido' : 'Marcar como pagado'}</button>
+    <button class="btn block" id="p-skip">${inc ? `En ${esc(monthLbl(ym))} no lo recibo` : `En ${esc(monthLbl(ym))} no se paga`}</button>
+    <p class="hint" style="margin-top:8px">Saltar no registra nada: solo pasa al siguiente mes.</p>
+  `, sh => {
+    const amt = wireAmount(sh);
+    sh.querySelector('#p-acc').onclick = e => {
+      const b = e.target.closest('[data-acc]'); if (!b) return;
+      acc = b.dataset.acc;
+      sh.querySelectorAll('#p-acc button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    };
+    const rule = () => state.recs.find(x => x.id === r.id);
+    sh.querySelector('#p-save').onclick = () => {
+      const amount = parseAmount(amt.value);
+      if (!(amount > 0)) { amt.focus(); return toast('Escribe el monto'); }
+      const date = sh.querySelector('#p-date').value || today();
+      state.txs.push({ id: uid(), type: r.type, amount, cat: r.cat, acc, date, note: sh.querySelector('#p-note').value.trim(), rec: r.id, due });
+      rule().last = ym;
+      save(); closeSheet(); render();
+      toast(inc ? 'Cobro registrado' : 'Pago registrado');
+    };
+    sh.querySelector('#p-skip').onclick = () => {
+      if (!confirm(`¿Saltar ${monthLbl(ym)}? No se registrará nada para ese mes.`)) return;
+      rule().last = ym;
+      save(); closeSheet(); render();
+      toast(`${monthLbl(ym)} saltado`);
+    };
+  });
+}
+
 /* Cobro o pago adelantado de un fijo: registra ahora varios meses juntos y
    salta esos meses en los cobros automáticos (sin contarlos dos veces). */
 const monthLbl = ym => monthName(ym) + (ym.slice(0, 4) !== today().slice(0, 4) ? ' ' + ym.slice(0, 4) : '');
@@ -1988,7 +2082,12 @@ function openAdvanceSheet(r) {
   const first = nextChargeMonth(r);
   const maxN = yearly ? 5 : 24;
   let n = 1, edited = false, acc = r.acc || 'tarjeta';
-  const covered = () => Array.from({ length: n }, (_, i) => shiftMonth(first, i * step));
+  // Si el cobro anterior ya se registró solo (p. ej. el de este mes, con su fecha automática),
+  // el adelanto puede incluirlo: ese registro se reemplaza por el adelanto con la fecha real.
+  const prevYm = shiftMonth(first, -step);
+  const absorb = state.txs.find(t => t.rec === r.id && !t.adv && t.type === r.type && monthOf(t.date) === prevYm && prevYm >= shiftMonth(monthOf(today()), -step));
+  let incl = false;
+  const covered = () => Array.from({ length: n }, (_, i) => shiftMonth(incl ? prevYm : first, i * step));
   const range = () => { const c = covered(); return c.length === 1 ? monthLbl(c[0]) : `${monthLbl(c[0])} – ${monthLbl(c[c.length - 1])}`; };
   const unit = k => yearly ? (k === 1 ? 'año' : 'años') : (k === 1 ? 'mes' : 'meses');
   openSheet(`
@@ -1997,7 +2096,8 @@ function openAdvanceSheet(r) {
       <span class="e">${esc(recEmoji(r))}</span>
       <span class="m"><b>${esc(r.note || r.cat)}</b><span>${esc(money(r.amount))} ${yearly ? 'al año' : 'al mes'} · ${accOf(r.acc).emoji} ${esc(accOf(r.acc).name)}</span></span>
     </div>
-    <div class="field"><label>${inc ? `¿Cuántos ${unit(2)} te adelantaron?` : `¿Cuántos ${unit(2)} pagaste por adelantado?`}</label>
+    ${absorb ? `<label class="switch-row"><span>Incluye ${esc(monthLbl(prevYm))}<small>Se registró solo el ${esc(shortDate(absorb.date))} por ${esc(money(absorb.amount))}. Actívalo si ese mes también ${inc ? 'llegó' : 'lo pagaste'} ahora: ese registro se reemplaza por este adelanto.</small></span><input type="checkbox" class="switch" id="a-incl"></label>` : ''}
+    <div class="field"><label>${inc ? `¿Cuántos ${unit(2)} ${absorb ? 'cubre en total' : 'te adelantaron'}?` : `¿Cuántos ${unit(2)} ${absorb ? 'cubre en total' : 'pagaste por adelantado'}?`}</label>
       <div class="stepper"><button type="button" data-d="-1" aria-label="Menos">−</button><span id="a-n"></span><button type="button" data-d="1" aria-label="Más">+</button></div>
     </div>
     <div class="card" style="background:var(--surface-2);margin:0 0 12px;padding:12px 14px">
@@ -2030,6 +2130,8 @@ function openAdvanceSheet(r) {
       if (!edited) { syncing = true; amt.value = amtStr(r.amount * n); amt.dispatchEvent(new Event('input')); syncing = false; }
     };
     update();
+    const inclBox = sh.querySelector('#a-incl');
+    if (inclBox) inclBox.onchange = () => { incl = inclBox.checked; update(); };
     sh.querySelector('.stepper').onclick = e => {
       const b = e.target.closest('[data-d]'); if (!b) return;
       n = Math.max(1, Math.min(maxN, n + +b.dataset.d));
@@ -2045,11 +2147,13 @@ function openAdvanceSheet(r) {
       if (!(amount > 0)) { amt.focus(); return toast('Escribe el total'); }
       const c = covered(), newLast = c[c.length - 1];
       const rule = state.recs.find(x => x.id === r.id);
+      if (incl && absorb) state.txs = state.txs.filter(t => t.id !== absorb.id);   // reemplazado por el adelanto
+      const prevLast = incl ? shiftMonth(prevYm, -step) : rule.last || null;
       state.txs.push({
         id: uid(), type: r.type, amount, cat: r.cat, acc,
         date: sh.querySelector('#a-date').value || today(),
         note: sh.querySelector('#a-note').value.trim() || `Adelanto ${r.note || r.cat} (${range()})`,
-        rec: r.id, adv: { recId: r.id, prevLast: rule.last || null, newLast, months: c },
+        rec: r.id, adv: { recId: r.id, prevLast, newLast, months: c },
       });
       rule.last = newLast;   // los cobros automáticos siguen después del último mes cubierto
       save(); closeSheet(); render();
@@ -2487,9 +2591,10 @@ $('tx-acc').onclick = e => { const b = e.target.closest('[data-a]'); if (b) { tx
 $('search').addEventListener('input', () => renderTx());
 
 document.querySelector('main').addEventListener('click', e => {
-  const el = e.target.closest('[data-edit],[data-rec],[data-delrec],[data-newrec],[data-goal],[data-contrib],[data-withdraw],[data-goto],[data-delcat],[data-month],[data-customize],[data-opening],[data-xfer],button[id]');
+  const el = e.target.closest('[data-edit],[data-rec],[data-delrec],[data-newrec],[data-goal],[data-contrib],[data-withdraw],[data-goto],[data-delcat],[data-month],[data-customize],[data-opening],[data-xfer],[data-pay],button[id]');
   if (!el) return;
   const d = el.dataset;
+  if (d.pay) return openPaySheet(state.recs.find(r => r.id === d.pay));
   if (d.xfer) return openTxSheet(null, { type: 'transfer', from: d.xfer });
   if (d.customize !== undefined) return openWidgetsSheet();
   if (d.opening !== undefined) return openOpeningSheet();
