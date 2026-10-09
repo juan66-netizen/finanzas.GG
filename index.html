@@ -1945,7 +1945,19 @@ function openRecSheet(rec, kind) {
     ${sub ? '' : `<div class="catgrid" id="s-cats">${catGrid(r.type, r.cat)}</div>`}
     <div class="field"><label for="s-date">Próximo cobro</label><input type="date" id="s-date" value="${dateVal}"></div>
     <label class="switch-row"><span>${r.type === 'ingreso' ? 'Confirmar cada cobro' : 'Confirmar cada pago'}<small>En su fecha no se registra solo: te avisa en Inicio y lo marcas cuando de verdad ${r.type === 'ingreso' ? 'llegue' : 'lo pagues'}. Útil si a veces ${r.type === 'ingreso' ? 'te pagan' : 'pagas'} tarde.</small></span><input type="checkbox" class="switch" id="s-confirm" ${r.confirm ? 'checked' : ''}></label>
-    ${isNew ? `<p class="hint">Si la fecha es hoy o ya pasó, el cobro se registra de inmediato (o queda pendiente para confirmar, si activas la opción de arriba).</p>`
+    ${isNew ? `<label class="switch-row"><span>${r.type === 'ingreso' ? 'Ya me pagaron meses por adelantado' : 'Ya pagué meses por adelantado'}<small>Regístralo ahora y esos meses no se contarán dos veces</small></span><input type="checkbox" class="switch" id="s-pre"></label>
+      <div id="s-pre-box" hidden>
+        <div class="field"><label id="s-pre-l">¿Cuántos meses?</label>
+          <div class="stepper" id="s-pre-step"><button type="button" data-d="-1" aria-label="Menos">−</button><span id="s-pre-n"></span><button type="button" data-d="1" aria-label="Más">+</button></div></div>
+        <div class="card" style="background:var(--surface-2);margin:0 0 12px;padding:12px 14px">
+          <div class="w-row" style="margin:0"><span>Cubre</span><b id="s-pre-range"></b></div>
+          <div class="muted" style="font-size:12px;margin-top:4px" id="s-pre-next"></div>
+        </div>
+        <div class="o-acc"><span class="h">${r.type === 'ingreso' ? 'Total recibido' : 'Total pagado'}</span>
+          <span class="o-in">${/^\d/.test(money(1)) ? '' : `<span class="cur">${esc(curSymbol())}</span>`}<input class="inp" inputmode="decimal" autocomplete="off" id="s-pre-total" placeholder="0" aria-label="Total del adelanto">${/^\d/.test(money(1)) ? `<span class="cur">${esc(curSymbol())}</span>` : ''}</span></div>
+        <div class="field"><label for="s-pre-date">${r.type === 'ingreso' ? 'Fecha en que lo recibiste' : 'Fecha del pago'}</label><input type="date" id="s-pre-date" value="${today()}"></div>
+      </div>
+      <p class="hint" id="s-new-hint">Si la fecha es hoy o ya pasó, el cobro se registra de inmediato (o queda pendiente para confirmar, si activas la opción de arriba).</p>`
       : `<label class="switch-row"><span>Activa<small>Pausa sin borrarla</small></span><input type="checkbox" class="switch" id="s-active" ${r.active ? 'checked' : ''}></label>
          <p class="hint">Los cambios aplican a los próximos cobros; lo ya registrado no cambia.</p>`}
     <button class="btn primary block" id="s-save">${isNew ? 'Agregar' : 'Guardar cambios'}</button>
@@ -1956,6 +1968,51 @@ function openRecSheet(rec, kind) {
   `, sh => {
     const amt = wireAmount(sh);
     const noteInp = sh.querySelector('#s-note');
+    // Adelanto al crear: meses ya pagados/cobrados desde el primer cobro
+    const pre = sh.querySelector('#s-pre');
+    let preInfo = null;
+    if (pre) {
+      let preN = 1, preEdited = false;
+      const totalInp = sh.querySelector('#s-pre-total'), dateInp = sh.querySelector('#s-date');
+      const step = () => r.freq === 'year' ? 12 : 1;
+      const unit = k => r.freq === 'year' ? (k === 1 ? 'año' : 'años') : (k === 1 ? 'mes' : 'meses');
+      const months = () => Array.from({ length: preN }, (_, i) => shiftMonth(monthOf(dateInp.value || today()), i * step()));
+      const range = c => c.length === 1 ? monthLbl(c[0]) : `${monthLbl(c[0])} – ${monthLbl(c[c.length - 1])}`;
+      const update = () => {
+        sh.querySelector('#s-pre-box').hidden = !pre.checked;
+        sh.querySelector('#s-new-hint').hidden = pre.checked;
+        if (!pre.checked) return;
+        preN = Math.min(preN, r.freq === 'year' ? 5 : 24);
+        const c = months();
+        sh.querySelector('#s-pre-l').textContent = `¿Cuántos ${unit(2)}?`;
+        sh.querySelector('#s-pre-n').textContent = `${preN} ${unit(preN)}`;
+        sh.querySelector('#s-pre-step [data-d="-1"]').disabled = preN <= 1;
+        sh.querySelector('#s-pre-step [data-d="1"]').disabled = preN >= (r.freq === 'year' ? 5 : 24);
+        sh.querySelector('#s-pre-range').textContent = range(c);
+        const nextYm = shiftMonth(c[c.length - 1], step());
+        const day = +(dateInp.value || today()).slice(8);
+        const nextDate = `${nextYm}-${pad(Math.min(day, daysInMonth(nextYm)))}`;
+        sh.querySelector('#s-pre-next').textContent = `Esos ${unit(2)} no se registrarán solos. El siguiente cobro automático será el ${new Date(nextDate + 'T12:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })}.`;
+        const m = parseAmount(amt.value);
+        if (!preEdited) totalInp.value = m > 0 ? amtStr(m * preN) : '';   // sigue al monto hasta que se edite
+      };
+      totalInp.addEventListener('input', () => { preEdited = true; });
+      pre.addEventListener('change', update);
+      sh.querySelector('#s-pre-step').onclick = e => {
+        const b = e.target.closest('[data-d]'); if (!b) return;
+        preN = Math.max(1, preN + +b.dataset.d);
+        update();
+      };
+      dateInp.addEventListener('input', update);
+      amt.addEventListener('input', update);
+      sh.querySelector('#s-freq').addEventListener('click', () => setTimeout(update));
+      update();
+      preInfo = {
+        on: () => pre.checked, n: () => preN, range,
+        total: () => parseAmount(totalInp.value),
+        date: () => sh.querySelector('#s-pre-date').value || today(),
+      };
+    }
     const presets = sh.querySelector('#s-presets');
     if (presets) presets.onclick = e => {
       const b = e.target.closest('[data-preset]'); if (!b) return;
@@ -1997,9 +2054,23 @@ function openRecSheet(rec, kind) {
         const nr = { id: uid(), type: r.type, amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active: true, acc: r.acc || 'tarjeta', confirm: sh.querySelector('#s-confirm').checked };
         setNextCharge(nr, date);
         state.recs.push(nr);
+        let advN = 0;
+        if (preInfo && preInfo.on()) {
+          // Un solo movimiento por el adelanto; los meses cubiertos se saltan
+          advN = preInfo.n();
+          const st = recStep(nr), first = nextChargeMonth(nr);
+          const months = Array.from({ length: advN }, (_, i) => shiftMonth(first, i * st));
+          const total = preInfo.total() > 0 ? preInfo.total() : amount * advN;
+          state.txs.push({
+            id: uid(), type: nr.type, amount: total, cat: nr.cat, acc: nr.acc, date: preInfo.date(),
+            note: `Adelanto ${note} (${preInfo.range(months)})`,
+            rec: nr.id, adv: { recId: nr.id, prevLast: nr.last || null, newLast: months[months.length - 1], months },
+          });
+          nr.last = months[months.length - 1];
+        }
         const n = applyRecurring();
         save(); closeSheet(); render();
-        toast(`${sub ? 'Suscripción agregada' : 'Fijo agregado'}${n ? ' · cobro registrado' : overdueCharges(nr).length ? ' · pendiente de confirmar' : ''}`);
+        toast(`${sub ? 'Suscripción agregada' : 'Fijo agregado'}${advN ? ` · adelanto de ${advN} ${r.freq === 'year' ? (advN === 1 ? 'año' : 'años') : (advN === 1 ? 'mes' : 'meses')} registrado` : n ? ' · cobro registrado' : overdueCharges(nr).length ? ' · pendiente de confirmar' : ''}`);
         return;
       }
       const t = state.recs.find(x => x.id === rec.id);
