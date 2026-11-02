@@ -593,10 +593,11 @@ function normalize(s) {
       opening = { date: o.date, amounts: { [fallback]: +o.amount } };
     }
   }
-  // Dinero apartado (reservado para un gasto fijo o para otra cosa)
+  // Dinero apartado (reservado para un gasto fijo o para otra cosa). Los de tipo 'early'
+  // vienen de un ingreso cobrado antes de su fecha: su monto sale del movimiento `txId`.
   const reserves = (Array.isArray(s.reserves) ? s.reserves : [])
-    .filter(r => r && r.id && +r.amount > 0)
-    .map(r => ({ ...r, amount: +r.amount, acc: hasAcc(r.acc) ? r.acc : fallback }));
+    .filter(r => r && r.id && (r.kind === 'early' ? r.txId && Array.isArray(r.dates) && r.dates.length : +r.amount > 0))
+    .map(r => ({ ...r, amount: +r.amount || 0, acc: hasAcc(r.acc) ? r.acc : fallback }));
   return {
     accounts,
     txs,
@@ -722,9 +723,44 @@ function balanceAt(date, acc) {
 }
 
 /* Dinero apartado: parte del saldo reservada para algo (p. ej. el arriendo de los
-   próximos meses). Si está ligado a un gasto fijo, se va gastando solo al pagarlo. */
+   próximos meses). Si está ligado a un gasto fijo, se va gastando solo al pagarlo.
+   Si viene de un ingreso cobrado antes de su fecha (kind 'early'), la parte de cada
+   cobro se libera sola el día en que tocaba recibirla. */
 const chargeMonthOf = t => t.due ? monthOf(t.due) : t.adv ? t.adv.months[0] : monthOf(t.date);
+const isEarly = rv => rv.kind === 'early';
+// Movimiento del que sale un apartado automático (deja de contar si ya no es un ingreso)
+const resTx = rv => state.txs.find(t => t.id === rv.txId && t.type === 'ingreso');
+// Reparte un total en n partes iguales (lo que sobra del redondeo va a la última)
+function splitEven(total, n) {
+  const f = zeroDec() ? 1 : 100, base = Math.floor(total * f / n) / f;
+  return Array.from({ length: n }, (_, i) => i < n - 1 ? base : Math.round((total - base * (n - 1)) * f) / f);
+}
+// De un cobro de `total` recibido el día `date` que cubre los cobros de `dates`:
+// las partes cuya fecha aún no había llegado → [{ date, amount }]
+const earlyPartsOf = (total, date, dates) => {
+  const amts = splitEven(total, dates.length);
+  return dates.map((d, i) => ({ date: d, amount: amts[i] })).filter(p => p.date > date);
+};
+function earlyParts(rv) {
+  const t = resTx(rv);
+  return t ? earlyPartsOf(t.amount, t.date, rv.dates) : [];
+}
+const reserveAmt = rv => isEarly(rv) ? sumAmt(earlyParts(rv)) : rv.amount;
+const resAcc = rv => isEarly(rv) && resTx(rv) ? resTx(rv).acc : rv.acc;
+// Aparta lo que llegó antes de su fecha (el movimiento `t` ya debe estar guardado).
+// Devuelve cuánto quedó apartado (0 si ninguna fecha era futura).
+function reserveEarly(t, name, emoji, dates) {
+  const amount = sumAmt(earlyPartsOf(t.amount, t.date, dates));
+  if (amount > 0) state.reserves.push({ id: uid(), kind: 'early', txId: t.id, name, emoji, acc: t.acc, dates, amount });
+  return amount;
+}
+// Fechas de cobro que cubre un ingreso de un fijo (adelanto o cobro confirmado)
+function txChargeDates(t) {
+  if (t.adv) { const r = state.recs.find(x => x.id === t.adv.recId); return r ? t.adv.months.map(m => chargeDate(r, m)) : []; }
+  return t.due ? [t.due] : [];
+}
 function reserveUsed(rv) {
+  if (isEarly(rv)) return sumAmt(earlyParts(rv).filter(p => p.date <= today()));   // ya liberado
   if (!rv.recId) return 0;
   const used = state.txs
     .filter(t => t.rec === rv.recId && t.type === 'gasto' && t.date <= today() &&   // solo pagos ya hechos
@@ -732,8 +768,18 @@ function reserveUsed(rv) {
     .reduce((s, t) => s + t.amount, 0);
   return Math.min(rv.amount, used);
 }
-const reserveLeft = rv => Math.max(0, rv.amount - reserveUsed(rv));
-const reservedIn = acc => state.reserves.filter(r => !acc || r.acc === acc).reduce((s, r) => s + reserveLeft(r), 0);
+function reserveLeft(rv) {
+  if (!isEarly(rv)) return Math.max(0, rv.amount - reserveUsed(rv));
+  const t = resTx(rv), now = today();
+  return !t || t.date > now ? 0 : sumAmt(earlyParts(rv).filter(p => p.date > now));
+}
+const reservedIn = acc => state.reserves.filter(r => !acc || resAcc(r) === acc).reduce((s, r) => s + reserveLeft(r), 0);
+// Los apartados automáticos ya liberados del todo (o cuyo movimiento se borró) se quitan solos
+function pruneReserves() {
+  const n = state.reserves.length, now = today();
+  state.reserves = state.reserves.filter(rv => { if (!isEarly(rv)) return true; const t = resTx(rv); return t && (t.date > now || reserveLeft(rv) > 0); });
+  return state.reserves.length !== n;
+}
 
 /* Periodo visible: un mes o un año completo */
 const curYear = () => curMonth.slice(0, 4);
@@ -1108,7 +1154,8 @@ function wCuentas({ yearMode }) {
 
 /* Dinero apartado: reservas para gastos fijos u otros propósitos */
 function wApartados() {
-  const list = state.reserves;
+  const now = today();
+  const list = state.reserves.filter(rv => !isEarly(rv) || reserveLeft(rv) > 0);
   const add = `<button class="link" data-reserve="new">+ Apartar</button>`;
   if (!list.length) {
     return card('🔒 Dinero apartado', `<div class="empty" style="padding-top:0">¿Tienes dinero que ya tiene destino, como el arriendo de los próximos meses? Apártalo y la app te mostrará solo lo que de verdad puedes gastar.</div>
@@ -1116,21 +1163,27 @@ function wApartados() {
   }
   const total = reservedIn();
   const rows = list.map(rv => {
-    const used = reserveUsed(rv), left = reserveLeft(rv);
+    const used = reserveUsed(rv), left = reserveLeft(rv), amount = reserveAmt(rv), acc = accOf(resAcc(rv));
     const rec = rv.recId ? state.recs.find(r => r.id === rv.recId) : null;
     const span = rv.recId ? (rv.toMonth && rv.toMonth !== rv.fromMonth ? `${monthLbl(rv.fromMonth)} – ${monthLbl(rv.toMonth)}` : monthLbl(rv.fromMonth)) : '';
-    const sub = rv.recId
+    const parts = isEarly(rv) ? earlyParts(rv) : [];
+    const next = parts.find(p => p.date > now);
+    const sub = isEarly(rv)
+      ? `Cobrado antes de su fecha · ${next ? `se liberan ${esc(money(next.amount))} el ${esc(shortDate(next.date))}` : 'liberado'}`
+      : rv.recId
       ? `Para ${esc(rec ? (rec.note || rec.cat) : 'un fijo eliminado')} · ${esc(span)} · se descuenta al pagarlo`
       : 'Apartado manual';
-    const tip = `<b>${esc(rv.name)}</b>Apartado: ${esc(money(rv.amount))}<br>Usado: ${esc(money(used))}<br>Queda: ${esc(money(left))}`;
+    const tip = isEarly(rv)
+      ? `<b>${esc(rv.name)}</b>${parts.map(p => `${p.date <= now ? '✓' : '🔒'} ${esc(shortDate(p.date))}: ${esc(money(p.amount))}`).join('<br>')}`
+      : `<b>${esc(rv.name)}</b>Apartado: ${esc(money(amount))}<br>Usado: ${esc(money(used))}<br>Queda: ${esc(money(left))}`;
     return `<button class="mini" data-reserve="${esc(rv.id)}" style="flex-wrap:wrap">
       <span class="e">${esc(rv.emoji || (rec ? recEmoji(rec) : '🔒'))}</span>
-      <span class="m"><span class="t">${esc(rv.name)}</span><span class="s">${sub} · ${accOf(rv.acc).emoji} ${esc(accOf(rv.acc).name)}</span></span>
-      <span class="a" style="text-align:right">${left ? esc(money(left)) : '<span class="pos">✓ Usado</span>'}<span class="s" style="display:block;font-weight:400">de ${esc(money(rv.amount))}</span></span>
-      <span class="track" style="flex-basis:100%;margin:6px 0 0 38px" data-tip="${esc(tip)}"><span class="fill goal" style="width:${rv.amount ? used / rv.amount * 100 : 0}%"></span></span>
+      <span class="m"><span class="t">${esc(rv.name)}</span><span class="s">${sub} · ${acc.emoji} ${esc(acc.name)}</span></span>
+      <span class="a" style="text-align:right">${left ? esc(money(left)) : '<span class="pos">✓ Usado</span>'}<span class="s" style="display:block;font-weight:400">de ${esc(money(amount))}</span></span>
+      <span class="track" style="flex-basis:100%;margin:6px 0 0 38px" data-tip="${esc(tip)}"><span class="fill goal" style="width:${amount ? used / amount * 100 : 0}%"></span></span>
     </button>`;
   }).join('');
-  return card('🔒 Dinero apartado', rows + `<div class="muted" style="font-size:12px;margin-top:8px">La barra muestra cuánto ya se usó. Lo que queda apartado no cuenta como disponible.</div>`,
+  return card('🔒 Dinero apartado', rows + `<div class="muted" style="font-size:12px;margin-top:8px">La barra muestra cuánto ya se usó o se liberó. Lo que queda apartado no cuenta como disponible.</div>`,
     `${rightNote(esc(money(total)))} ${add}`);
 }
 
@@ -1894,6 +1947,11 @@ function openTxSheet(tx, preset = {}) {
   }
   const firstCat = type => (state.cats.find(c => c.type === type) || {}).name || '';
   if (!t.cat && t.type !== 'transfer') t.cat = firstCat(t.type);
+  // Ingreso de un fijo que llegó antes de su fecha: lo apartado, o la opción de apartarlo
+  const linkedRes = isNew ? [] : state.reserves.filter(rv => rv.txId === tx.id);
+  const earlyDates = !isNew && t.type === 'ingreso' && !linkedRes.length ? txChargeDates(tx) : [];
+  const canReserve = earlyDates.length && tx.date <= today() ? sumAmt(earlyPartsOf(tx.amount, tx.date, earlyDates).filter(p => p.date > today())) : 0;
+  const resLeft = linkedRes.reduce((s, rv) => s + reserveLeft(rv), 0);
   openSheet(`
     <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>${isNew ? 'Nuevo movimiento' : 'Editar movimiento'}</h3><span style="width:70px"></span></div>
     ${isNew ? openingRow() : ''}
@@ -1925,7 +1983,9 @@ function openTxSheet(tx, preset = {}) {
             : t.adv ? `<p class="hint">⏩ Adelanto de ${t.adv.months.length} ${t.adv.months.length === 1 ? 'cobro' : 'cobros'} (${esc(t.adv.months.map(monthLbl).join(', '))}). Si lo eliminas, esos meses volverán a registrarse solos.</p>`
             : t.due ? `<p class="hint">✅ ${t.type === 'ingreso' ? 'Cobro' : 'Pago'} de un fijo confirmado por ti (vencía el ${esc(shortDate(t.due))}).</p>`
             : t.rec && t.type !== 'transfer' ? `<p class="hint">↻ Registrado automáticamente en su fecha. Si en realidad ${t.type === 'ingreso' ? 'llegó' : 'lo pagaste'} otro día, cambia la fecha. Editarlo aquí solo cambia este mes.</p>` : ''}
+    ${resLeft ? `<p class="hint">🔒 ${esc(money(resLeft))} de este movimiento está apartado. Lo ves en Inicio, en «Dinero apartado».</p>` : ''}
     <button class="btn primary block" id="s-save">${isNew ? 'Agregar' : 'Guardar cambios'}</button>
+    ${canReserve ? `<button class="btn block" id="s-early">🔒 Apartar lo que llegó antes de tiempo (${esc(money(canReserve))})</button>` : ''}
     ${isNew ? '' : `<button class="btn danger block" id="s-del">Eliminar movimiento</button>`}
   `, sh => {
     const amt = wireAmount(sh);
@@ -2029,21 +2089,33 @@ function openTxSheet(tx, preset = {}) {
       if (monthOf(date) !== curMonth) curMonth = monthOf(date);
       closeSheet(); render();
     };
+    const early = $s('#s-early');
+    if (early) early.onclick = () => {
+      const x = state.txs.find(x => x.id === tx.id), rule = state.recs.find(r => r.id === (x.adv ? x.adv.recId : x.rec));
+      const amount = reserveEarly(x, rule ? rule.note || rule.cat : x.note || x.cat, rule ? recEmoji(rule) : catOf(x.cat).emoji, earlyDates);
+      save(); closeSheet(); render();
+      toast(`${money(amount)} apartado hasta su fecha`);
+    };
     const del = $s('#s-del');
     if (del) del.onclick = () => {
       const old = state.txs.find(x => x.id === tx.id);
+      // Lo apartado a partir de este movimiento se va con él
+      const dropRes = () => { state.reserves = state.reserves.filter(rv => rv.txId !== tx.id); };
       if (old.adv) {
-        if (!confirm(`Este movimiento es un adelanto (${old.adv.months.map(monthLbl).join(', ')}).\n\nSi lo eliminas, esos meses volverán a quedar pendientes y se registrarán solos en su fecha. ¿Eliminar?`)) return;
+        if (!confirm(`Este movimiento es un adelanto (${old.adv.months.map(monthLbl).join(', ')}).\n\nSi lo eliminas, esos meses volverán a quedar pendientes y se registrarán solos en su fecha.${linkedRes.length ? ' También se quitará lo que se apartó con él.' : ''} ¿Eliminar?`)) return;
         state.txs = state.txs.filter(x => x.id !== tx.id);
+        dropRes();
         const rule = state.recs.find(x => x.id === old.adv.recId);
         if (rule && rule.last === old.adv.newLast) rule.last = old.adv.prevLast;
         applyRecurring(); save(); closeSheet(); render();
         toast('Adelanto eliminado');
         return;
       }
+      const res = state.reserves.filter(rv => rv.txId === tx.id);
       state.txs = state.txs.filter(x => x.id !== tx.id);
+      dropRes();
       save(); closeSheet(); render();
-      toast('Movimiento eliminado', () => { state.txs.push(old); save(); render(); });
+      toast('Movimiento eliminado', () => { state.txs.push(old); state.reserves.push(...res); save(); render(); });
     };
   });
 }
@@ -2089,6 +2161,7 @@ function openRecSheet(rec, kind) {
         <div class="o-acc"><span class="h">${r.type === 'ingreso' ? 'Total recibido' : 'Total pagado'}</span>
           <span class="o-in">${/^\d/.test(money(1)) ? '' : `<span class="cur">${esc(curSymbol())}</span>`}<input class="inp" inputmode="decimal" autocomplete="off" id="s-pre-total" placeholder="0" aria-label="Total del adelanto">${/^\d/.test(money(1)) ? `<span class="cur">${esc(curSymbol())}</span>` : ''}</span></div>
         <div class="field"><label for="s-pre-date">${r.type === 'ingreso' ? 'Fecha en que lo recibiste' : 'Fecha del pago'}</label><input type="date" id="s-pre-date" value="${today()}"></div>
+        ${r.type === 'ingreso' ? `<label class="switch-row"><span>Apartar lo adelantado<small>Lo de cada cobro cuya fecha aún no llega no contará como disponible hasta ese día.</small></span><input type="checkbox" class="switch" id="s-pre-res" checked></label>` : ''}
       </div>
       <p class="hint" id="s-new-hint">Si la fecha es hoy o ya pasó, el cobro se registra de inmediato (o queda pendiente para confirmar, si activas la opción de arriba).</p>`
       : `<label class="switch-row"><span>Activa<small>Pausa sin borrarla</small></span><input type="checkbox" class="switch" id="s-active" ${r.active ? 'checked' : ''}></label>
@@ -2096,8 +2169,8 @@ function openRecSheet(rec, kind) {
     <button class="btn primary block" id="s-save">${isNew ? 'Agregar' : 'Guardar cambios'}</button>
     ${!isNew && r.type === 'gasto' ? `<button class="btn block" id="s-reserve">🔒 Apartar dinero para este fijo</button>` : ''}
     ${!isNew && r.confirm && r.active ? `<button class="btn block" id="s-pay">✅ ${r.type === 'ingreso' ? 'Registrar cobro' : 'Registrar pago'} de ${esc(monthLbl(nextChargeMonth(r)))}</button>` : ''}
-    ${isNew ? '' : `<button class="btn block" id="s-adv">⏩ ${r.type === 'ingreso' ? 'Registrar cobro adelantado' : 'Pagar por adelantado'}</button>
-      <p class="hint" style="margin:6px 4px 0">${r.type === 'ingreso' ? '¿Te pagaron varios meses juntos?' : '¿Pagaste varios meses de una vez?'} Regístralo aquí y esos meses no se contarán dos veces.</p>`}
+    ${isNew ? '' : `<button class="btn block" id="s-adv">⏩ ${r.type === 'ingreso' ? 'Me pagaron antes o por adelantado' : 'Pagar por adelantado'}</button>
+      <p class="hint" style="margin:6px 4px 0">${r.type === 'ingreso' ? '¿Te pagaron antes de la fecha o varios meses juntos? Regístralo aquí: no se contará dos veces y lo adelantado quedará apartado hasta su fecha.' : '¿Pagaste varios meses de una vez? Regístralo aquí y esos meses no se contarán dos veces.'}</p>`}
     ${isNew ? '' : `<button class="btn danger block" id="s-del">Quitar ${sub ? 'suscripción' : 'este fijo'}</button>`}
   `, sh => {
     const amt = wireAmount(sh);
@@ -2145,6 +2218,7 @@ function openRecSheet(rec, kind) {
         on: () => pre.checked, n: () => preN, range,
         total: () => parseAmount(totalInp.value),
         date: () => sh.querySelector('#s-pre-date').value || today(),
+        res: () => !!sh.querySelector('#s-pre-res')?.checked,
       };
     }
     const presets = sh.querySelector('#s-presets');
@@ -2188,23 +2262,25 @@ function openRecSheet(rec, kind) {
         const nr = { id: uid(), type: r.type, amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active: true, acc: isAcc(r.acc) ? r.acc : defaultAcc(), confirm: sh.querySelector('#s-confirm').checked };
         setNextCharge(nr, date);
         state.recs.push(nr);
-        let advN = 0;
+        let advN = 0, reserved = 0;
         if (preInfo && preInfo.on()) {
           // Un solo movimiento por el adelanto; los meses cubiertos se saltan
           advN = preInfo.n();
           const st = recStep(nr), first = nextChargeMonth(nr);
           const months = Array.from({ length: advN }, (_, i) => shiftMonth(first, i * st));
           const total = preInfo.total() > 0 ? preInfo.total() : amount * advN;
-          state.txs.push({
+          const tx = {
             id: uid(), type: nr.type, amount: total, cat: nr.cat, acc: nr.acc, date: preInfo.date(),
             note: `Adelanto ${note} (${preInfo.range(months)})`,
             rec: nr.id, adv: { recId: nr.id, prevLast: nr.last || null, newLast: months[months.length - 1], months },
-          });
+          };
+          state.txs.push(tx);
           nr.last = months[months.length - 1];
+          if (nr.type === 'ingreso' && preInfo.res()) reserved = reserveEarly(tx, note, recEmoji(nr), months.map(m => chargeDate(nr, m)));
         }
         const n = applyRecurring();
         save(); closeSheet(); render();
-        toast(`${sub ? 'Suscripción agregada' : 'Fijo agregado'}${advN ? ` · adelanto de ${advN} ${r.freq === 'year' ? (advN === 1 ? 'año' : 'años') : (advN === 1 ? 'mes' : 'meses')} registrado` : n ? ' · cobro registrado' : overdueCharges(nr).length ? ' · pendiente de confirmar' : ''}`);
+        toast(`${sub ? 'Suscripción agregada' : 'Fijo agregado'}${advN ? ` · adelanto de ${advN} ${r.freq === 'year' ? (advN === 1 ? 'año' : 'años') : (advN === 1 ? 'mes' : 'meses')} registrado` : n ? ' · cobro registrado' : overdueCharges(nr).length ? ' · pendiente de confirmar' : ''}${reserved ? ` · ${money(reserved)} apartado` : ''}`);
         return;
       }
       const t = state.recs.find(x => x.id === rec.id);
@@ -2250,6 +2326,7 @@ function openPaySheet(r) {
       ${accPicker('p-acc', acc)}
     </div>
     <div class="field"><label for="p-date">${inc ? '¿Cuándo lo recibiste?' : '¿Cuándo lo pagaste?'}</label><input type="date" id="p-date" value="${today()}"></div>
+    ${inc ? `<label class="switch-row" id="p-res-row"><span>Apartar hasta el ${esc(shortDate(due))}<small>Llegó antes de su fecha: seguirá en tu cuenta, pero no contará como disponible hasta ese día.</small></span><input type="checkbox" class="switch" id="p-res" checked></label>` : ''}
     <div class="field"><label for="p-note">Nota</label><input id="p-note" maxlength="80" value="${esc(r.note || '')}"></div>
     <button class="btn primary block" id="p-save">${inc ? 'Marcar como recibido' : 'Marcar como pagado'}</button>
     <button class="btn block" id="p-skip">${inc ? `En ${esc(monthLbl(ym))} no lo recibo` : `En ${esc(monthLbl(ym))} no se paga`}</button>
@@ -2262,14 +2339,20 @@ function openPaySheet(r) {
       sh.querySelectorAll('#p-acc button').forEach(x => x.setAttribute('aria-pressed', x === b));
     };
     const rule = () => state.recs.find(x => x.id === r.id);
+    // Un cobro que llega antes de su fecha queda apartado hasta entonces
+    const dateInp = sh.querySelector('#p-date'), resRow = sh.querySelector('#p-res-row');
+    const early = () => (dateInp.value || today()) < due;
+    if (resRow) { resRow.hidden = !early(); dateInp.addEventListener('input', () => { resRow.hidden = !early(); }); }
     sh.querySelector('#p-save').onclick = () => {
       const amount = parseAmount(amt.value);
       if (!(amount > 0)) { amt.focus(); return toast('Escribe el monto'); }
-      const date = sh.querySelector('#p-date').value || today();
-      state.txs.push({ id: uid(), type: r.type, amount, cat: r.cat, acc, date, note: sh.querySelector('#p-note').value.trim(), rec: r.id, due });
+      const date = dateInp.value || today();
+      const tx = { id: uid(), type: r.type, amount, cat: r.cat, acc, date, note: sh.querySelector('#p-note').value.trim(), rec: r.id, due };
+      state.txs.push(tx);
       rule().last = ym;
+      const reserved = inc && early() && sh.querySelector('#p-res').checked ? reserveEarly(tx, r.note || r.cat, recEmoji(r), [due]) : 0;
       save(); closeSheet(); render();
-      toast(inc ? 'Cobro registrado' : 'Pago registrado');
+      toast(inc ? `Cobro registrado${reserved ? ` · apartado hasta el ${shortDate(due)}` : ''}` : 'Pago registrado');
     };
     sh.querySelector('#p-skip').onclick = () => {
       if (!confirm(`¿Saltar ${monthLbl(ym)}? No se registrará nada para ese mes.`)) return;
@@ -2297,6 +2380,7 @@ function openAdvanceSheet(r) {
   const covered = () => Array.from({ length: n }, (_, i) => shiftMonth(incl ? prevYm : first, i * step));
   const range = () => { const c = covered(); return c.length === 1 ? monthLbl(c[0]) : `${monthLbl(c[0])} – ${monthLbl(c[c.length - 1])}`; };
   const unit = k => yearly ? (k === 1 ? 'año' : 'años') : (k === 1 ? 'mes' : 'meses');
+  const fixedExp = state.recs.filter(x => x.type === 'gasto' && x.active);
   openSheet(`
     <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>${inc ? 'Cobro adelantado' : 'Pago adelantado'}</h3><span style="width:70px"></span></div>
     <div class="opening-row" style="cursor:default">
@@ -2318,10 +2402,13 @@ function openAdvanceSheet(r) {
     </div>
     <div class="field"><label for="a-date">${inc ? 'Fecha en que lo recibiste' : 'Fecha del pago'}</label><input type="date" id="a-date" value="${today()}"></div>
     <div class="field"><label for="a-note">Nota</label><input id="a-note" maxlength="80"></div>
-    ${inc && state.recs.some(x => x.type === 'gasto' && x.active) ? `
-      <label class="switch-row"><span>Apartar este dinero<small>Si es para pagar un gasto fijo (p. ej. el arriendo), resérvalo: seguirá en tu cuenta pero no contará como disponible y se descontará solo al pagar ese fijo.</small></span><input type="checkbox" class="switch" id="a-res"></label>
-      <div class="field" id="a-res-box" hidden><label>¿Para qué gasto fijo?</label>
-        <div class="chips" id="a-res-for">${state.recs.filter(x => x.type === 'gasto' && x.active).map((x, i) => `<button type="button" class="chip" data-for="${esc(x.id)}" aria-pressed="${i === 0}">${esc(recEmoji(x))} ${esc(x.note || x.cat)}</button>`).join('')}</div>
+    ${inc ? `
+      <label class="switch-row"><span>Apartar lo adelantado<small>Lo que llegó antes de su fecha seguirá en tu cuenta, pero no contará como disponible hasta entonces.</small></span><input type="checkbox" class="switch" id="a-res" checked></label>
+      <div id="a-res-box">
+        ${fixedExp.length ? `<div class="field"><label>¿Cuándo se libera?</label>
+          <div class="chips" id="a-res-for"><button type="button" class="chip" data-for="" aria-pressed="true">📅 En la fecha de cada cobro</button>${fixedExp.map(x => `<button type="button" class="chip" data-for="${esc(x.id)}" aria-pressed="false">${esc(recEmoji(x))} Al pagar ${esc(x.note || x.cat)}</button>`).join('')}</div>
+        </div>` : ''}
+        <p class="hint" id="a-res-info" style="margin:0 4px 12px"></p>
       </div>` : ''}
     <button class="btn primary block" id="a-save">Registrar adelanto</button>
   `, sh => {
@@ -2340,7 +2427,42 @@ function openAdvanceSheet(r) {
       sh.querySelector('#a-note').placeholder = `Adelanto ${r.note || r.cat} (${range()})`;
       // El total sigue a los meses elegidos hasta que la persona lo cambie a mano
       if (!edited) { syncing = true; amt.value = amtStr(r.amount * n); amt.dispatchEvent(new Event('input')); syncing = false; }
+      resInfo();
     };
+    // Apartar lo adelantado: en la fecha de cada cobro, o para pagar un gasto fijo
+    const resBox = sh.querySelector('#a-res');
+    let resFor = '';
+    const dateInp = sh.querySelector('#a-date');
+    function resInfo() {
+      const info = sh.querySelector('#a-res-info');
+      if (!info) return;
+      sh.querySelector('#a-res-box').hidden = !resBox.checked;
+      const total = parseAmount(amt.value) || 0, c = covered();
+      const target = resFor && state.recs.find(x => x.id === resFor);
+      if (target) {
+        info.textContent = `Se apartan ${money(total)} y se descuentan solos cada vez que pagues ${target.note || target.cat} (${range()}).`;
+        return;
+      }
+      const date = dateInp.value || today();
+      const parts = earlyPartsOf(total, date, c.map(m => chargeDate(r, m)));
+      const due = c.filter(m => chargeDate(r, m) <= date);
+      const dueTxt = due.length ? ` Lo de ${due.map(monthLbl).join(', ')} ya tocaba, así que queda disponible.` : '';
+      if (!parts.length) info.textContent = `Todo lo que cubre ya llegó a su fecha: no queda nada por apartar.`;
+      else if (parts.length <= 3) info.textContent = `Se apartan ${money(sumAmt(parts))}: ${parts.map(p => `${money(p.amount)} hasta el ${shortDate(p.date)}`).join(' · ')}.${dueTxt}`;
+      else info.textContent = `Se apartan ${money(sumAmt(parts))}: cada ${yearly ? 'año' : 'mes'} se liberan ${money(parts[0].amount)} en su fecha, del ${shortDate(parts[0].date)} al ${shortDate(parts[parts.length - 1].date)}.${dueTxt}`;
+    }
+    if (resBox) {
+      resBox.onchange = resInfo;
+      const chips = sh.querySelector('#a-res-for');
+      if (chips) chips.onclick = e => {
+        const b = e.target.closest('[data-for]'); if (!b) return;
+        resFor = b.dataset.for;
+        chips.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+        resInfo();
+      };
+      amt.addEventListener('input', resInfo);
+      dateInp.addEventListener('input', resInfo);
+    }
     update();
     const inclBox = sh.querySelector('#a-incl');
     if (inclBox) inclBox.onchange = () => { incl = inclBox.checked; update(); };
@@ -2354,17 +2476,6 @@ function openAdvanceSheet(r) {
       acc = b.dataset.acc;
       sh.querySelectorAll('#a-acc button').forEach(x => x.setAttribute('aria-pressed', x === b));
     };
-    // Apartar el adelanto para un gasto fijo
-    const resBox = sh.querySelector('#a-res');
-    let resFor = (sh.querySelector('#a-res-for [aria-pressed="true"]') || {}).dataset?.for || null;
-    if (resBox) {
-      resBox.onchange = () => { sh.querySelector('#a-res-box').hidden = !resBox.checked; };
-      sh.querySelector('#a-res-for').onclick = e => {
-        const b = e.target.closest('[data-for]'); if (!b) return;
-        resFor = b.dataset.for;
-        sh.querySelectorAll('#a-res-for button').forEach(x => x.setAttribute('aria-pressed', x === b));
-      };
-    }
     sh.querySelector('#a-save').onclick = () => {
       const amount = parseAmount(amt.value);
       if (!(amount > 0)) { amt.focus(); return toast('Escribe el total'); }
@@ -2372,21 +2483,26 @@ function openAdvanceSheet(r) {
       const rule = state.recs.find(x => x.id === r.id);
       if (incl && absorb) state.txs = state.txs.filter(t => t.id !== absorb.id);   // reemplazado por el adelanto
       const prevLast = incl ? shiftMonth(prevYm, -step) : rule.last || null;
-      state.txs.push({
+      const tx = {
         id: uid(), type: r.type, amount, cat: r.cat, acc,
-        date: sh.querySelector('#a-date').value || today(),
+        date: dateInp.value || today(),
         note: sh.querySelector('#a-note').value.trim() || `Adelanto ${r.note || r.cat} (${range()})`,
         rec: r.id, adv: { recId: r.id, prevLast, newLast, months: c },
-      });
+      };
+      state.txs.push(tx);
       rule.last = newLast;   // los cobros automáticos siguen después del último mes cubierto
-      const target = resBox && resBox.checked ? state.recs.find(x => x.id === resFor) : null;
-      if (target) {
-        // Mismos meses que cubre el adelanto: cada pago de ese fijo se descuenta de aquí
-        state.reserves.push({ id: uid(), name: target.note || target.cat, emoji: recEmoji(target), amount, acc,
-          recId: target.id, fromMonth: c[0], toMonth: c[c.length - 1], months: c.length });
+      let reserved = 0;
+      if (resBox && resBox.checked) {
+        const target = resFor && state.recs.find(x => x.id === resFor);
+        if (target) {
+          // Mismos meses que cubre el adelanto: cada pago de ese fijo se descuenta de aquí
+          state.reserves.push({ id: uid(), name: target.note || target.cat, emoji: recEmoji(target), amount, acc,
+            recId: target.id, fromMonth: c[0], toMonth: c[c.length - 1], months: c.length, txId: tx.id });
+          reserved = amount;
+        } else reserved = reserveEarly(tx, rule.note || rule.cat, recEmoji(rule), c.map(m => chargeDate(rule, m)));
       }
       save(); closeSheet(); render();
-      toast(`Adelanto registrado · ${n} ${unit(n)} cubiertos${target ? ' · dinero apartado' : ''}`);
+      toast(`Adelanto registrado · ${n} ${unit(n)} cubiertos${reserved ? ` · ${money(reserved)} apartado` : ''}`);
     };
   });
 }
@@ -2646,6 +2762,7 @@ function openAccountSheet(acc) {
 
 /* Apartar dinero: para un gasto fijo (se descuenta solo al pagarlo) o para otra cosa */
 function openReserveSheet(rv, preset = {}) {
+  if (rv && isEarly(rv)) return openEarlySheet(rv);
   const isNew = !rv;
   const fixed = state.recs.filter(r => r.type === 'gasto' && (r.active || (rv && rv.recId === r.id)));
   const d = rv ? { ...rv } : { name: '', emoji: '', amount: '', acc: defaultAcc(), recId: preset.recId || null, months: 1 };
@@ -2735,6 +2852,33 @@ function openReserveSheet(rv, preset = {}) {
       const [old] = state.reserves.splice(i, 1);
       save(); closeSheet(); render();
       toast('Apartado quitado', () => { state.reserves.splice(i, 0, old); save(); render(); });
+    };
+  });
+}
+/* Apartado automático de un ingreso cobrado antes de su fecha: cuándo se libera cada parte */
+function openEarlySheet(rv) {
+  const t = resTx(rv), now = today(), acc = accOf(resAcc(rv));
+  if (!t) return;
+  openSheet(`
+    <div class="sheet-head"><button class="link" data-close>Cerrar</button><h3>Dinero apartado</h3><span style="width:70px"></span></div>
+    <div class="opening-row" style="cursor:default">
+      <span class="e">${esc(rv.emoji || '🔒')}</span>
+      <span class="m"><b>${esc(rv.name)}</b><span>Recibido el ${esc(shortDate(t.date))} · ${acc.emoji} ${esc(acc.name)}</span></span>
+    </div>
+    <p class="hint" style="margin:0 4px 12px">Te pagaron antes de la fecha. Esta parte sigue en tu cuenta, pero no cuenta como disponible: cada parte se libera sola el día en que tocaba recibirla.</p>
+    <div class="card" style="background:var(--surface-2);margin:0 0 12px;padding:4px 14px 12px">
+      ${earlyParts(rv).map(p => `<div class="w-row"><span>${p.date <= now ? '✓ Liberado el' : '🔒 Se libera el'} ${esc(shortDate(p.date))}</span><b>${esc(money(p.amount))}</b></div>`).join('')}
+    </div>
+    <button class="btn block" id="e-tx">Ver el movimiento</button>
+    <button class="btn danger block" id="e-del">Dejar de apartarlo</button>
+    <p class="hint" style="margin-top:6px">No mueve dinero: solo vuelve a contarse como disponible.</p>
+  `, sh => {
+    sh.querySelector('#e-tx').onclick = () => openTxSheet(t);
+    sh.querySelector('#e-del').onclick = () => {
+      const i = state.reserves.findIndex(x => x.id === rv.id);
+      const [old] = state.reserves.splice(i, 1);
+      save(); closeSheet(); render();
+      toast('Ya no está apartado', () => { state.reserves.splice(i, 0, old); save(); render(); });
     };
   });
 }
@@ -3251,6 +3395,7 @@ function loadDemo() {
    ========================================================= */
 function boot() {
   const n = applyRecurring();
+  if (pruneReserves()) save();
   $('app').hidden = false;
   setTab(tab);
   if (n) toast(`Se registraron ${n} movimiento${n === 1 ? '' : 's'} recurrente${n === 1 ? '' : 's'}`);
