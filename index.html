@@ -41,8 +41,8 @@
   --expense: #e5683c;
   --fixed: #9085e9;
   --net: #8cc8ff;
-  --acc-card: #3d8fe8;   /* tarjeta y efectivo: validados juntos en los 7 temas */
-  --acc-cash: #c95fb0;
+  /* Colores de cuentas (en orden de creación), validados como vecinos en los 7 temas */
+  --acc-0: #3d8fe8; --acc-1: #c95fb0; --acc-2: #b88324; --acc-3: #837be3; --acc-4: #36a36a;
   --good-text: #5ee0a0;
   --bad-text: #ff8f8f;
   --warning: #fab219;
@@ -92,7 +92,7 @@
   --text: #0b0b0b; --text-2: #3c3c43; --muted: #6b6b73; --grid: #e5e5ea; --axis: #c7c7cc;
   --hero-a: #dfe9ff; --hero-b: #ffffff; --tabbar: #f7f7fa; --backdrop: rgba(0,0,0,.35);
   --soft: rgba(0,0,0,0.04);
-  --income: #0f8a72; --expense: #d4572a; --fixed: #6b5fd3; --net: #2a78d6; --acc-card: #2468c9; --acc-cash: #a8327a;
+  --income: #0f8a72; --expense: #d4572a; --fixed: #6b5fd3; --net: #2a78d6; --acc-0: #2468c9; --acc-1: #a8327a; --acc-2: #8a620c; --acc-3: #5b52c4; --acc-4: #23784e;
   --good-text: #0a7a3a; --bad-text: #c62828; --link: #0a64d6; --toast-link: #8cc8ff;
   --accent-auto: #0b1633; --accent-ink-auto: #ffffff;
 }
@@ -158,7 +158,7 @@ main {
 .flow .end small { display: block; font-size: 12px; color: var(--muted); font-weight: 500; }
 .flow .swap { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 18px; flex: none; }
 .acc-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.acc-tile { background: var(--surface-2); border-radius: 14px; padding: 12px; min-width: 0; }
+.acc-tile { background: var(--surface-2); border-radius: 14px; padding: 12px; min-width: 0; border: 0; text-align: left; color: var(--text); width: 100%; }
 .acc-tile .h { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
 .acc-tile .bal { font-size: 21px; font-weight: 750; margin-top: 4px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .acc-tile .mv { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; font-variant-numeric: tabular-nums; }
@@ -457,11 +457,7 @@ svg.chart .vlab { fill: var(--text-2); font-weight: 650; }
           <button class="chip" data-f="ingreso" aria-pressed="false">Ingresos</button>
           <button class="chip" data-f="transfer" aria-pressed="false">↔ Movidos</button>
         </div>
-        <div class="chips" id="tx-acc">
-          <button class="chip" data-a="all" aria-pressed="true">Todas las cuentas</button>
-          <button class="chip" data-a="tarjeta" aria-pressed="false">💳 Tarjeta</button>
-          <button class="chip" data-a="efectivo" aria-pressed="false">💵 Efectivo</button>
-        </div>
+        <div class="chips" id="tx-acc"></div>
         <input type="search" id="search" placeholder="Buscar por nota o categoría" aria-label="Buscar movimientos">
         <div id="tx-list"></div>
       </div>
@@ -531,14 +527,30 @@ const DEFAULT_CATS = [
   ['Salario','💼','ingreso'], ['Freelance','💻','ingreso'], ['Otros ingresos','💰','ingreso'],
 ].map(([name, emoji, type]) => ({ name, emoji, type, budget: 0 }));
 
-// Dónde está el dinero: cada movimiento sale o entra de una de estas cuentas
-const ACCOUNTS = [
-  { id: 'tarjeta',  name: 'Tarjeta',  emoji: '💳', color: 'var(--acc-card)' },
-  { id: 'efectivo', name: 'Efectivo', emoji: '💵', color: 'var(--acc-cash)' },
+// Dónde está el dinero: cada movimiento sale o entra de una cuenta. Las cuentas las
+// crea y nombra la persona (bancos, efectivo, ahorros…). Cada una guarda su color
+// (slot) para que no cambie al agregar, ordenar o archivar otras.
+const DEFAULT_ACCOUNTS = [
+  { id: 'tarjeta',  name: 'Tarjeta',  emoji: '💳', slot: 0 },
+  { id: 'efectivo', name: 'Efectivo', emoji: '💵', slot: 1 },
 ];
-const isAcc = id => ACCOUNTS.some(a => a.id === id);
-const accOf = id => ACCOUNTS.find(a => a.id === id) || ACCOUNTS[0];
-const otherAcc = id => ACCOUNTS.find(a => a.id !== id).id;
+const ACC_SLOTS = 5;   // colores validados --acc-0 … --acc-4; a partir de la 6.ª cuenta se usa gris
+const accAll = () => state.accounts;
+const accList = () => state.accounts.filter(a => !a.archived);   // las que se pueden elegir
+const isAcc = id => !!state && state.accounts.some(a => a.id === id);
+const accOf = id => (state && state.accounts.find(a => a.id === id)) || { id, name: 'Cuenta eliminada', emoji: '❔', slot: null };
+const accColor = a => a.slot != null && a.slot < ACC_SLOTS ? `var(--acc-${a.slot})` : 'var(--muted)';
+const otherAcc = id => (accList().find(a => a.id !== id) || accAll().find(a => a.id !== id) || { id }).id;
+const hasCash = () => accList().some(a => a.id === 'efectivo') && accList().length > 1;
+const defaultAcc = () => isAcc(state.lastAcc) && !accOf(state.lastAcc).archived ? state.lastAcc : (accList()[0] || accAll()[0]).id;
+// Selector de cuenta: botones en fila si son pocas, chips si son muchas
+function accPicker(id, selected) {
+  const list = accList().slice();
+  if (isAcc(selected) && !list.some(a => a.id === selected)) list.push(accOf(selected));   // una archivada ya elegida
+  const chips = list.length > 3;
+  const btn = a => `<button type="button" ${chips ? 'class="chip"' : ''} data-acc="${esc(a.id)}" aria-pressed="${a.id === selected}">${a.emoji} ${esc(a.name)}</button>`;
+  return `<div class="${chips ? 'chips' : 'seg acc-seg'}" id="${id}">${list.map(btn).join('')}</div>`;
+}
 
 let state = null;        // datos descifrados en memoria
 let cryptoKey = null;    // clave AES derivada del PIN (no exportable)
@@ -551,33 +563,51 @@ function normalize(s) {
     if (!c.emoji) c.emoji = (DEFAULT_CATS.find(d => d.name === c.name) || {}).emoji || (c.type === 'ingreso' ? '💰' : '🏷️');
     c.budget = +c.budget || 0;
   }
-  // Cada ingreso/gasto pertenece a una cuenta (tarjeta o efectivo). Los datos
-  // anteriores a las cuentas se asignan a la tarjeta.
+  // Cuentas: las guardadas, o tarjeta + efectivo para datos anteriores a esta función
+  const accounts = [];
+  for (const a of Array.isArray(s.accounts) ? s.accounts : []) {
+    if (a && a.id && a.name && !accounts.some(x => x.id === a.id)) {
+      accounts.push({ id: String(a.id), name: String(a.name), emoji: a.emoji || '🏦', slot: Number.isInteger(a.slot) ? a.slot : null, archived: !!a.archived });
+    }
+  }
+  if (!accounts.length) accounts.push(...structuredClone(DEFAULT_ACCOUNTS));
+  const hasAcc = id => accounts.some(a => a.id === id);
+  const fallback = hasAcc('tarjeta') ? 'tarjeta' : accounts[0].id;
+  // Cada ingreso/gasto pertenece a una cuenta. Los datos anteriores a las cuentas van a la tarjeta.
   const txs = (Array.isArray(s.txs) ? s.txs : []).filter(t => t && t.date && +t.amount > 0 && (
-    t.type === 'transfer' ? isAcc(t.from) && isAcc(t.to) && t.from !== t.to : true));
-  for (const t of txs) if (t.type !== 'transfer' && !isAcc(t.acc)) t.acc = 'tarjeta';
+    t.type === 'transfer' ? hasAcc(t.from) && hasAcc(t.to) && t.from !== t.to : true));
+  for (const t of txs) if (t.type !== 'transfer' && !hasAcc(t.acc)) t.acc = fallback;
   const recs = Array.isArray(s.recs) ? s.recs : [];
-  for (const r of recs) if (!isAcc(r.acc)) r.acc = 'tarjeta';
-  // Saldo inicial: dinero en cada cuenta al empezar el día `date`.
-  // El formato anterior ({ amount, date }) pasa entero a la tarjeta.
+  for (const r of recs) if (!hasAcc(r.acc)) r.acc = fallback;
+  // Saldo inicial: dinero en cada cuenta al empezar el día `date`. Una cuenta sin
+  // entrada en `amounts` no tiene saldo conocido. El formato antiguo ({ amount, date })
+  // pasa entero a la tarjeta.
   let opening = null;
   const o = s.opening;
   if (o && /^\d{4}-\d{2}-\d{2}$/.test(o.date)) {
     if (o.amounts && typeof o.amounts === 'object') {
-      opening = { date: o.date, amounts: Object.fromEntries(ACCOUNTS.map(a => [a.id, Number.isFinite(+o.amounts[a.id]) ? +o.amounts[a.id] : 0])) };
+      const amounts = {};
+      for (const [k, v] of Object.entries(o.amounts)) if (hasAcc(k) && Number.isFinite(+v)) amounts[k] = +v;
+      opening = { date: o.date, amounts };
     } else if (Number.isFinite(+o.amount)) {
-      opening = { date: o.date, amounts: { tarjeta: +o.amount, efectivo: 0 } };
+      opening = { date: o.date, amounts: { [fallback]: +o.amount } };
     }
   }
+  // Dinero apartado (reservado para un gasto fijo o para otra cosa)
+  const reserves = (Array.isArray(s.reserves) ? s.reserves : [])
+    .filter(r => r && r.id && +r.amount > 0)
+    .map(r => ({ ...r, amount: +r.amount, acc: hasAcc(r.acc) ? r.acc : fallback }));
   return {
+    accounts,
     txs,
     cats,
     recs,
     goals: Array.isArray(s.goals) ? s.goals : [],
+    reserves,
     currency: s.currency || 'EUR',
     lastBackup: s.lastBackup || null,
     opening,
-    lastAcc: isAcc(s.lastAcc) ? s.lastAcc : 'tarjeta',
+    lastAcc: hasAcc(s.lastAcc) ? s.lastAcc : fallback,
   };
 }
 
@@ -669,8 +699,10 @@ function txDelta(t, acc) {
   if (acc && t.acc !== acc) return 0;
   return t.type === 'ingreso' ? t.amount : -t.amount;
 }
-const openingOf = acc => !state.opening ? 0 : acc ? state.opening.amounts[acc] || 0
+const openingOf = acc => !state.opening ? 0 : acc ? state.opening.amounts[acc] ?? 0
   : Object.values(state.opening.amounts).reduce((s, v) => s + v, 0);
+// Cuentas con saldo inicial conocido (las demás no suman al saldo total)
+const knownAccs = () => state.opening ? Object.keys(state.opening.amounts) : [];
 const totals = ym => sumWhere(d => monthOf(d) === ym);
 function addDays(date, n) {
   const d = new Date(date + 'T12:00');
@@ -682,10 +714,26 @@ function addDays(date, n) {
 function balanceAt(date, acc) {
   const o = state.opening;
   if (!o || date < o.date) return null;
-  let b = openingOf(acc);
-  for (const t of state.txs) if (t.date >= o.date && t.date <= date) b += txDelta(t, acc);
+  const accs = acc ? [acc] : knownAccs();
+  if (!accs.length || accs.some(a => !(a in o.amounts))) return null;
+  let b = accs.reduce((s, a) => s + o.amounts[a], 0);
+  for (const t of state.txs) if (t.date >= o.date && t.date <= date) for (const a of accs) b += txDelta(t, a);
   return b;
 }
+
+/* Dinero apartado: parte del saldo reservada para algo (p. ej. el arriendo de los
+   próximos meses). Si está ligado a un gasto fijo, se va gastando solo al pagarlo. */
+const chargeMonthOf = t => t.due ? monthOf(t.due) : t.adv ? t.adv.months[0] : monthOf(t.date);
+function reserveUsed(rv) {
+  if (!rv.recId) return 0;
+  const used = state.txs
+    .filter(t => t.rec === rv.recId && t.type === 'gasto' && t.date <= today() &&   // solo pagos ya hechos
+      chargeMonthOf(t) >= rv.fromMonth && (!rv.toMonth || chargeMonthOf(t) <= rv.toMonth))
+    .reduce((s, t) => s + t.amount, 0);
+  return Math.min(rv.amount, used);
+}
+const reserveLeft = rv => Math.max(0, rv.amount - reserveUsed(rv));
+const reservedIn = acc => state.reserves.filter(r => !acc || r.acc === acc).reduce((s, r) => s + reserveLeft(r), 0);
 
 /* Periodo visible: un mes o un año completo */
 const curYear = () => curMonth.slice(0, 4);
@@ -742,7 +790,8 @@ const ACCENTS = [
 ];
 const WIDGETS = [
   { id: 'resumen',       icon: '💶', name: 'Balance del periodo',        desc: 'Ingresos, gastos, balance y tasa de ahorro' },
-  { id: 'cuentas',       icon: '👛', name: 'Efectivo y tarjeta',         desc: 'Cuánto tienes en cada uno y cómo pagas' },
+  { id: 'cuentas',       icon: '👛', name: 'Tus cuentas',                desc: 'Cuánto tienes en cada cuenta y cómo pagas' },
+  { id: 'apartados',     icon: '🔒', name: 'Dinero apartado',            desc: 'Lo reservado para el arriendo u otros fijos' },
   { id: 'ritmo',         icon: '⏱️', name: 'Ritmo de gasto',             desc: 'Cuánto puedes gastar al día y cómo cerrarás el mes' },
   { id: 'proximos',      icon: '📅', name: 'Próximos cobros',            desc: 'Fijos y suscripciones que faltan este mes' },
   { id: 'saldo',         icon: '📈', name: 'Saldo día a día',            desc: 'Cómo sube y baja tu dinero durante el mes' },
@@ -832,7 +881,7 @@ function applyRecurring() {
     while (ym <= curYm) {
       const day = Math.min(r.day, daysInMonth(ym));
       if (ym === curYm && day > d) break;
-      state.txs.push({ id: uid(), type: r.type, amount: r.amount, cat: r.cat, note: r.note, date: `${ym}-${pad(day)}`, rec: r.id, acc: r.acc || 'tarjeta' });
+      state.txs.push({ id: uid(), type: r.type, amount: r.amount, cat: r.cat, note: r.note, date: `${ym}-${pad(day)}`, rec: r.id, acc: isAcc(r.acc) ? r.acc : defaultAcc() });
       r.last = ym; n++;
       ym = shiftMonth(ym, recStep(r));
     }
@@ -976,12 +1025,18 @@ function wResumen({ yearMode, year, t, p, elapsed }) {
     const periodEnd = yearMode ? `${year}-12-31` : `${curMonth}-${pad(daysInMonth(curMonth))}`;
     const ref = periodEnd >= now ? now : periodEnd;
     const b = balanceAt(ref);
-    const split = ACCOUNTS.map(a => { const v = balanceAt(ref, a.id); return `<span>${a.emoji} ${esc(a.name)} <b class="num ${v < 0 ? 'neg' : ''}">${esc(money(v))}</b></span>`; }).join('');
+    const split = accAll().filter(a => balanceAt(ref, a.id) !== null && (!a.archived || balanceAt(ref, a.id)))
+      .map(a => { const v = balanceAt(ref, a.id); return `<span>${a.emoji} ${esc(a.name)} <b class="num ${v < 0 ? 'neg' : ''}">${esc(money(v))}</b></span>`; }).join('');
+    // Hoy: lo apartado (p. ej. el arriendo ya cobrado de meses futuros) no se puede gastar
+    const reserved = ref === now ? reservedIn() : 0;
+    const free = b === null ? null : b - reserved;
     avail = b === null ? ''
-      : `<button class="avail" data-opening><span class="top"><span>🏦 ${ref === now ? 'Saldo disponible hoy' : `Saldo al cierre de ${esc(periodLabel())}`}</span><b class="num ${b < 0 ? 'neg' : ''}">${esc(money(b))}</b></span>
+      : `<button class="avail" data-opening>
+          <span class="top"><span>🏦 ${ref === now ? (reserved ? 'Disponible para gastar' : 'Saldo disponible hoy') : `Saldo al cierre de ${esc(periodLabel())}`}</span><b class="num ${free < 0 ? 'neg' : ''}">${esc(money(free))}</b></span>
+          ${reserved ? `<span class="accs"><span>En tus cuentas <b class="num">${esc(money(b))}</b></span><span>🔒 Apartado <b class="num">${esc(money(reserved))}</b></span></span>` : ''}
           <span class="accs">${split}</span></button>`;
   } else {
-    avail = `<button class="avail" data-opening><span class="top"><span>🏦 Define tus saldos de tarjeta y efectivo para ver tu dinero disponible</span><b style="color:var(--link)">›</b></span></button>`;
+    avail = `<button class="avail" data-opening><span class="top"><span>🏦 Define el saldo de tus cuentas para ver tu dinero disponible</span><b style="color:var(--link)">›</b></span></button>`;
   }
   return `<div class="card hero">
     <div class="label">Balance de ${esc(periodLabel())}</div>
@@ -1002,47 +1057,81 @@ function wCuentas({ yearMode }) {
   const now = today();
   const periodEnd = yearMode ? `${curYear()}-12-31` : `${curMonth}-${pad(daysInMonth(curMonth))}`;
   const ref = periodEnd >= now ? now : periodEnd;
-  const per = Object.fromEntries(ACCOUNTS.map(a => [a.id, { inc: 0, exp: 0, n: 0, inX: 0, outX: 0 }]));
+  const accs = accList();
+  const per = Object.fromEntries(accAll().map(a => [a.id, { inc: 0, exp: 0, n: 0, inX: 0, outX: 0 }]));
   for (const x of state.txs) {
     if (!inPeriod(x.date)) continue;
-    if (x.type === 'transfer') { per[x.from].outX += x.amount; per[x.to].inX += x.amount; continue; }
+    if (x.type === 'transfer') { if (per[x.from]) per[x.from].outX += x.amount; if (per[x.to]) per[x.to].inX += x.amount; continue; }
     const p = per[x.acc];
     if (!p) continue;
     if (x.type === 'ingreso') p.inc += x.amount; else { p.exp += x.amount; p.n++; }
   }
-  const tiles = ACCOUNTS.map(a => {
+  const many = accs.length > 2;
+  const tiles = accs.map(a => {
     const p = per[a.id], bal = balanceAt(ref, a.id);
+    const res = ref === now ? reservedIn(a.id) : 0;
+    const other = many ? 'otras cuentas' : accOf(otherAcc(a.id)).name.toLowerCase();
     const moves = [
       p.exp ? `−${esc(money(p.exp))} en gastos` : '',
       p.inc ? `+${esc(money(p.inc))} en ingresos` : '',
-      p.inX ? `+${esc(money(p.inX))} recibido de ${esc(accOf(otherAcc(a.id)).name.toLowerCase())}` : '',
-      p.outX ? `−${esc(money(p.outX))} pasado a ${esc(accOf(otherAcc(a.id)).name.toLowerCase())}` : '',
+      p.inX ? `+${esc(money(p.inX))} recibido de ${esc(other)}` : '',
+      p.outX ? `−${esc(money(p.outX))} pasado a ${esc(other)}` : '',
     ].filter(Boolean);
-    return `<div class="acc-tile">
-      <div class="h"><i class="dot" style="background:${a.color}"></i>${a.emoji} ${esc(a.name)}</div>
+    return `<button class="acc-tile" data-acc-edit="${esc(a.id)}">
+      <div class="h"><i class="dot" style="background:${accColor(a)}"></i>${a.emoji} ${esc(a.name)}</div>
       ${bal === null ? `<div class="bal muted" style="font-size:14px;font-weight:600">Sin saldo inicial</div>` : `<div class="bal ${bal < 0 ? 'neg' : ''}">${esc(money(bal))}</div>`}
+      ${res ? `<div class="mv" style="color:var(--text-2)">🔒 ${esc(money(res))} apartado · libre ${esc(money((bal || 0) - res))}</div>` : ''}
       <div class="mv">${moves.length ? moves.join('<br>') : `Sin movimientos ${yearMode ? 'este año' : 'este mes'}`}</div>
-    </div>`;
+    </button>`;
   }).join('');
 
-  // Cómo pagaste: reparto de los gastos del periodo entre tarjeta y efectivo
-  const totalExp = ACCOUNTS.reduce((s, a) => s + per[a.id].exp, 0);
+  // Cómo pagaste: reparto de los gastos del periodo entre cuentas (cada cuenta conserva su color)
+  const paid = accAll().filter(a => per[a.id].exp > 0);
+  const totalExp = paid.reduce((s, a) => s + per[a.id].exp, 0);
   let split = '';
-  if (totalExp) {
-    const pcts = ACCOUNTS.map(a => Math.round(per[a.id].exp / totalExp * 100));
+  if (totalExp && paid.length > 1) {
+    const pcts = paid.map(a => Math.round(per[a.id].exp / totalExp * 100));
     pcts[pcts.length - 1] = 100 - pcts.slice(0, -1).reduce((s, v) => s + v, 0);
     split = `<div class="w-sub" style="margin:14px 0 0">Cómo pagaste tus gastos ${yearMode ? 'este año' : 'este mes'}</div>
-      <div class="stack" role="img" aria-label="${ACCOUNTS.map((a, i) => `${a.name} ${pcts[i]}%`).join(', ')}">${ACCOUNTS.map((a, i) => per[a.id].exp
-        ? `<div style="flex:${per[a.id].exp};background:${a.color}" data-tip="${esc(`<b>${a.emoji} ${a.name}</b>${esc(money(per[a.id].exp))} · ${pcts[i]}%<br>${per[a.id].n} ${per[a.id].n === 1 ? 'pago' : 'pagos'}`)}"></div>` : '').join('')}</div>
-      <div class="lg">${ACCOUNTS.map((a, i) => `<div><i class="dot" style="background:${a.color}"></i><span>${a.emoji} ${esc(a.name)} <span class="muted" style="font-size:12px">${per[a.id].n} ${per[a.id].n === 1 ? 'pago' : 'pagos'}</span></span><b>${esc(money(per[a.id].exp))} · ${pcts[i]}%</b></div>`).join('')}</div>`;
+      <div class="stack" role="img" aria-label="${esc(paid.map((a, i) => `${a.name} ${pcts[i]}%`).join(', '))}">${paid.map((a, i) =>
+        `<div style="flex:${per[a.id].exp};background:${accColor(a)}" data-tip="${esc(`<b>${a.emoji} ${esc(a.name)}</b>${esc(money(per[a.id].exp))} · ${pcts[i]}%<br>${per[a.id].n} ${per[a.id].n === 1 ? 'pago' : 'pagos'}`)}"></div>`).join('')}</div>
+      <div class="lg">${paid.map((a, i) => `<div><i class="dot" style="background:${accColor(a)}"></i><span>${a.emoji} ${esc(a.name)} <span class="muted" style="font-size:12px">${per[a.id].n} ${per[a.id].n === 1 ? 'pago' : 'pagos'}</span></span><b>${esc(money(per[a.id].exp))} · ${pcts[i]}%</b></div>`).join('')}</div>`;
   }
-  const actions = `<div style="display:flex;gap:8px;margin-top:12px">
-    <button class="btn" style="flex:1;min-height:42px;font-size:14px;padding:0 8px" data-xfer="tarjeta">🏧 Sacar efectivo</button>
-    <button class="btn" style="flex:1;min-height:42px;font-size:14px;padding:0 8px" data-xfer="efectivo">🏦 Ingresar efectivo</button>
-  </div>`;
-  const hint = state.opening ? '' : `<div class="muted" style="font-size:12px;margin-top:10px">Indica cuánto tienes en cada uno en <button class="link" data-opening style="font-size:12px;padding:0;min-height:0">saldos iniciales</button> para ver tus saldos.</div>`;
-  return card('Efectivo y tarjeta', `<div class="acc-tiles">${tiles}</div>${split}${actions}${hint}`,
-    state.opening ? rightNote(ref === now ? 'Saldo hoy' : 'Saldo al cierre') : '');
+  const btn = (attr, label) => `<button class="btn" style="flex:1;min-height:42px;font-size:14px;padding:0 8px" ${attr}>${label}</button>`;
+  const actions = accs.length < 2 ? '' : `<div style="display:flex;gap:8px;margin-top:12px">${hasCash()
+    ? btn('data-xfer="to-cash"', '🏧 Sacar efectivo') + btn('data-xfer="from-cash"', '🏦 Ingresar efectivo')
+    : btn('data-xfer="any"', '↔ Mover entre cuentas')}</div>`;
+  const hint = state.opening ? '' : `<div class="muted" style="font-size:12px;margin-top:10px">Indica cuánto tienes en cada una en <button class="link" data-opening style="font-size:12px;padding:0;min-height:0">saldos iniciales</button> para ver tus saldos.</div>`;
+  return card('Tus cuentas', `<div class="acc-tiles">${tiles}</div>${split}${actions}${hint}`,
+    `<button class="link" data-acc-edit="new">+ Cuenta</button>`);
+}
+
+/* Dinero apartado: reservas para gastos fijos u otros propósitos */
+function wApartados() {
+  const list = state.reserves;
+  const add = `<button class="link" data-reserve="new">+ Apartar</button>`;
+  if (!list.length) {
+    return card('🔒 Dinero apartado', `<div class="empty" style="padding-top:0">¿Tienes dinero que ya tiene destino, como el arriendo de los próximos meses? Apártalo y la app te mostrará solo lo que de verdad puedes gastar.</div>
+      <button class="btn primary block" data-reserve="new">+ Apartar dinero</button>`);
+  }
+  const total = reservedIn();
+  const rows = list.map(rv => {
+    const used = reserveUsed(rv), left = reserveLeft(rv);
+    const rec = rv.recId ? state.recs.find(r => r.id === rv.recId) : null;
+    const span = rv.recId ? (rv.toMonth && rv.toMonth !== rv.fromMonth ? `${monthLbl(rv.fromMonth)} – ${monthLbl(rv.toMonth)}` : monthLbl(rv.fromMonth)) : '';
+    const sub = rv.recId
+      ? `Para ${esc(rec ? (rec.note || rec.cat) : 'un fijo eliminado')} · ${esc(span)} · se descuenta al pagarlo`
+      : 'Apartado manual';
+    const tip = `<b>${esc(rv.name)}</b>Apartado: ${esc(money(rv.amount))}<br>Usado: ${esc(money(used))}<br>Queda: ${esc(money(left))}`;
+    return `<button class="mini" data-reserve="${esc(rv.id)}" style="flex-wrap:wrap">
+      <span class="e">${esc(rv.emoji || (rec ? recEmoji(rec) : '🔒'))}</span>
+      <span class="m"><span class="t">${esc(rv.name)}</span><span class="s">${sub} · ${accOf(rv.acc).emoji} ${esc(accOf(rv.acc).name)}</span></span>
+      <span class="a" style="text-align:right">${left ? esc(money(left)) : '<span class="pos">✓ Usado</span>'}<span class="s" style="display:block;font-weight:400">de ${esc(money(rv.amount))}</span></span>
+      <span class="track" style="flex-basis:100%;margin:6px 0 0 38px" data-tip="${esc(tip)}"><span class="fill goal" style="width:${rv.amount ? used / rv.amount * 100 : 0}%"></span></span>
+    </button>`;
+  }).join('');
+  return card('🔒 Dinero apartado', rows + `<div class="muted" style="font-size:12px;margin-top:8px">La barra muestra cuánto ya se usó. Lo que queda apartado no cuenta como disponible.</div>`,
+    `${rightNote(esc(money(total)))} ${add}`);
 }
 
 /* Ritmo de gasto: cuánto puedes gastar al día y proyección */
@@ -1147,7 +1236,7 @@ function wSaldo({ yearMode, year }) {
   if (yearMode) {
     const m = monthsElapsed(year);
     if (!m) return card(title, emptyMsg('Este año aún no empieza.'));
-    real = !!o && o.date <= `${year}-12-31`;
+    real = !!o && knownAccs().length > 0 && o.date <= `${year}-12-31`;
     let acc = 0;
     for (let i = 1; i <= m; i++) {
       const ym = `${year}-${pad(i)}`, tt = totals(ym);
@@ -1156,7 +1245,7 @@ function wSaldo({ yearMode, year }) {
         const end = ym === curYm ? now : `${ym}-${pad(daysInMonth(ym))}`;
         const b = balanceAt(end);
         if (b === null) continue;   // meses anteriores al saldo inicial
-        const split = ACCOUNTS.map(a => `${a.emoji} ${esc(money(balanceAt(end, a.id)))}`).join(' · ');
+        const split = knownAccs().map(accOf).map(a => `${a.emoji} ${esc(money(balanceAt(end, a.id)))}`).join(' · ');
         pts.push({ i: i - 1, v: b, tip: `<b>${esc(cap(monthName(ym, 'long')))}</b>Saldo ${ym === curYm ? 'hoy' : 'al cierre'}: ${esc(money(b))}<br>${split}${delta}` });
       } else {
         acc += tt.bal;
@@ -1171,17 +1260,20 @@ function wSaldo({ yearMode, year }) {
     if (ym > curYm) return card(title, emptyMsg('Este mes aún no empieza.'));
     const last = ym === curYm ? +now.slice(8) : D;
     // Variación diaria total y por cuenta (las transferencias solo mueven dinero entre cuentas)
-    const net = Array(D + 1).fill(0);
-    const netAcc = Object.fromEntries(ACCOUNTS.map(a => [a.id, Array(D + 1).fill(0)]));
+    // Variación diaria: total (ingresos − gastos) y por cada cuenta con saldo conocido
+    const known = knownAccs();
+    const net = Array(D + 1).fill(0), netKnown = Array(D + 1).fill(0);
+    const netAcc = Object.fromEntries(known.map(id => [id, Array(D + 1).fill(0)]));
     let any = false;
     for (const x of state.txs) {
       if (monthOf(x.date) !== ym) continue;
       const day = +x.date.slice(8);
       net[day] += txDelta(x);
-      for (const a of ACCOUNTS) netAcc[a.id][day] += txDelta(x, a.id);
+      for (const id of known) { const d = txDelta(x, id); netAcc[id][day] += d; netKnown[day] += d; }
       any = true;
     }
-    real = !!o && o.date <= `${ym}-${pad(last)}`;
+    real = !!o && known.length > 0 && o.date <= `${ym}-${pad(last)}`;
+    const series = real ? netKnown : net;
     let first = 1, acc = 0;
     const accBal = {};
     if (real) {
@@ -1189,16 +1281,16 @@ function wSaldo({ yearMode, year }) {
       if (startsInside) first = +o.date.slice(8);                     // empieza dentro del mes
       const before = addDays(`${ym}-01`, -1);                           // saldo con el que empezó el mes
       acc = startsInside ? openingOf() : balanceAt(before);
-      for (const a of ACCOUNTS) accBal[a.id] = startsInside ? openingOf(a.id) : balanceAt(before, a.id);
+      for (const id of known) accBal[id] = startsInside ? openingOf(id) : balanceAt(before, id);
     } else if (!any) return card(title, emptyMsg('Sin movimientos este mes.'));
     for (let i = first; i <= last; i++) {
-      acc += net[i];
+      acc += series[i];
       let split = '';
       if (real) {
-        for (const a of ACCOUNTS) accBal[a.id] += netAcc[a.id][i];
-        split = '<br>' + ACCOUNTS.map(a => `${a.emoji} ${esc(money(accBal[a.id]))}`).join(' · ');
+        for (const id of known) accBal[id] += netAcc[id][i];
+        split = '<br>' + known.map(accOf).map(a => `${a.emoji} ${esc(money(accBal[a.id]))}`).join(' · ');
       }
-      pts.push({ i: i - 1, v: acc, tip: `<b>${i} de ${esc(monthName(ym, 'long').split(' ')[0])}</b>Saldo: ${esc(money(acc))}${split}${net[i] ? `<br>Ese día: ${net[i] > 0 ? '+' : ''}${esc(money(net[i]))}` : ''}` });
+      pts.push({ i: i - 1, v: acc, tip: `<b>${i} de ${esc(monthName(ym, 'long').split(' ')[0])}</b>Saldo: ${esc(money(acc))}${split}${series[i] ? `<br>Ese día: ${series[i] > 0 ? '+' : ''}${esc(money(series[i]))}` : ''}` });
     }
     total = D; labelFor = i => (i === 0 || (i + 1) % 5 === 0) ? String(i + 1) : '';
     sub = real ? 'Tu saldo disponible cada día (saldo inicial + ingresos − gastos).' : 'Ingresos menos gastos acumulados desde el día 1.';
@@ -1414,7 +1506,7 @@ function wMetas() {
 }
 
 const WIDGET_FNS = {
-  resumen: wResumen, cuentas: wCuentas, ritmo: wRitmo, proximos: wProximos, saldo: wSaldo, categorias: wCategorias,
+  resumen: wResumen, cuentas: wCuentas, apartados: wApartados, ritmo: wRitmo, proximos: wProximos, saldo: wSaldo, categorias: wCategorias,
   cambios: wCambios, mayores: wMayores, fijos: wFijos, semana: wSemana,
   suscripciones: wSuscripciones, tendencia: wTendencia, metas: wMetas,
 };
@@ -1499,7 +1591,12 @@ function renderTx() {
   $('tx-rec').hidden = txMode !== 'rec';
   if (txMode === 'rec') return renderRecs();
   document.querySelectorAll('#tx-filter button').forEach(b => b.setAttribute('aria-pressed', b.dataset.f === txFilter));
-  document.querySelectorAll('#tx-acc button').forEach(b => b.setAttribute('aria-pressed', b.dataset.a === txAcc));
+  // Filtro por cuenta: se arma con las cuentas actuales (incluye archivadas con movimientos)
+  if (txAcc !== 'all' && !isAcc(txAcc)) txAcc = 'all';
+  const accChips = accAll().filter(a => !a.archived || state.txs.some(t => t.acc === a.id || t.from === a.id || t.to === a.id));
+  $('tx-acc').hidden = accChips.length < 2;
+  $('tx-acc').innerHTML = `<button class="chip" data-a="all" aria-pressed="${txAcc === 'all'}">Todas las cuentas</button>` +
+    accChips.map(a => `<button class="chip" data-a="${esc(a.id)}" aria-pressed="${txAcc === a.id}">${a.emoji} ${esc(a.name)}</button>`).join('');
   const q = $('search').value.trim().toLowerCase();
   const acc = txAcc === 'all' ? undefined : txAcc;
   const inAcc = t => !acc || (t.type === 'transfer' ? t.from === acc || t.to === acc : t.acc === acc);
@@ -1537,7 +1634,7 @@ function renderTx() {
         const d = acc ? txDelta(t, acc) : 0;
         return `<button class="item" data-edit="${t.id}">
           <span class="ico">↔️</span>
-          <span class="main"><span class="t" style="display:block">${esc(t.note || (t.to === 'efectivo' ? 'Sacar efectivo' : 'Ingresar efectivo'))}</span><span class="s" style="display:block">${f.emoji} ${esc(f.name)} → ${to.emoji} ${esc(to.name)}${when}</span></span>
+          <span class="main"><span class="t" style="display:block">${esc(t.note || (t.to === 'efectivo' ? 'Sacar efectivo' : t.from === 'efectivo' ? 'Ingresar efectivo' : 'Movimiento entre cuentas'))}</span><span class="s" style="display:block">${f.emoji} ${esc(f.name)} → ${to.emoji} ${esc(to.name)}${when}</span></span>
           <span class="amt ${d > 0 ? 'pos' : 'xfer'}">${d > 0 ? '+' : d < 0 ? '−' : ''}${esc(money(t.amount))}</span>
         </button>`;
       }
@@ -1662,12 +1759,23 @@ function renderSettings() {
   }
   h += `</div><div class="set-f">${pinOn ? 'Tus datos están cifrados (AES-256) y se bloquea al salir de la app más de 1 minuto.' : canCrypto ? 'Pide un PIN de 6 dígitos al abrir y guarda tus datos cifrados.' : 'El cifrado requiere abrir la app desde https.'}</div>`;
 
+  // Cuentas: saldo de hoy de cada una; tocar abre su ficha
+  const now = today();
+  h += `<div class="set-h">Cuentas</div><div class="list">` +
+    accAll().map(a => {
+      const b = balanceAt(now, a.id);
+      return `<button class="row-set" data-acc-edit="${esc(a.id)}" style="${a.archived ? 'opacity:.55' : ''}"><span>${a.emoji} ${esc(a.name)}${a.archived ? ' <span class="muted" style="font-size:13px">(archivada)</span>' : ''}</span><span class="muted num">${b === null ? 'Sin saldo' : esc(money(b))} ›</span></button>`;
+    }).join('') +
+    `<button class="row-set accent" data-acc-edit="new">+ Nueva cuenta</button>
+    <button class="row-set" id="open-opening"><span>🏦 Saldos iniciales</span><span class="muted">${knownAccs().length ? `desde el ${esc(shortDate(state.opening.date))}` : 'Sin definir'} ›</span></button>
+    <button class="row-set" data-reserve="new"><span>🔒 Dinero apartado</span><span class="muted num">${state.reserves.length ? esc(money(reservedIn())) : 'Nada apartado'} ›</span></button>
+  </div><div class="set-f">Agrega tus bancos, billeteras o ahorros. El dinero apartado (p. ej. para el arriendo) no cuenta como disponible.</div>`;
+
   h += `<div class="set-h">General</div><div class="list">
     <div class="row-set"><span>Moneda</span><select id="currency" aria-label="Moneda">
       ${[['EUR', 'Euro (€)'], ['USD', 'Dólar (US$)'], ['COP', 'Peso colombiano'], ['MXN', 'Peso mexicano'], ['ARS', 'Peso argentino'], ['CLP', 'Peso chileno'], ['PEN', 'Sol peruano']]
         .map(([c, n]) => `<option value="${c}" ${c === state.currency ? 'selected' : ''}>${n}</option>`).join('')}
     </select></div>
-    <button class="row-set" id="open-opening"><span>🏦 Saldos iniciales</span><span class="muted">${state.opening ? ACCOUNTS.map(a => `${a.emoji} ${esc(money(openingOf(a.id)))}`).join(' · ') : 'Sin definir'} ›</span></button>
     <button class="row-set" data-goto="rec" style="display:flex"><span>📺 Suscripciones y gastos fijos</span><span class="muted">${state.recs.filter(isSub).length} ›</span></button>
     </div><div class="set-f">Cambiar la moneda solo cambia cómo se muestran los montos; no los convierte.</div>`;
 
@@ -1771,11 +1879,19 @@ function openTxSheet(tx, preset = {}) {
   const t = tx ? { ...tx } : {
     type: preset.type || lastType, amount: '', cat: '', note: '',
     date: curMonth === monthOf(today()) ? today() : curMonth + '-01',
-    acc: state.lastAcc || 'tarjeta',
+    acc: defaultAcc(),
   };
-  if (!isAcc(t.acc)) t.acc = state.lastAcc || 'tarjeta';
-  t.from = isAcc(t.from) ? t.from : preset.from || 'tarjeta';
-  t.to = otherAcc(t.from);
+  if (!isAcc(t.acc)) t.acc = defaultAcc();
+  // Cuentas de un "Mover": las del movimiento editado, o según el atajo elegido
+  const nonCash = () => (accList().find(a => a.id !== 'efectivo') || accList()[0] || accAll()[0]).id;
+  if (!(t.type === 'transfer' && isAcc(t.from) && isAcc(t.to))) {
+    if (preset.from === 'from-cash' && hasCash()) { t.from = 'efectivo'; t.to = nonCash(); }
+    else if (preset.from === 'to-cash' && hasCash()) { t.from = nonCash(); t.to = 'efectivo'; }
+    else {
+      t.from = isAcc(preset.from) ? preset.from : hasCash() ? nonCash() : defaultAcc();
+      t.to = hasCash() && t.from !== 'efectivo' ? 'efectivo' : otherAcc(t.from);
+    }
+  }
   const firstCat = type => (state.cats.find(c => c.type === type) || {}).name || '';
   if (!t.cat && t.type !== 'transfer') t.cat = firstCat(t.type);
   openSheet(`
@@ -1784,22 +1900,24 @@ function openTxSheet(tx, preset = {}) {
     <div class="seg" id="s-type">
       <button type="button" data-type="gasto" aria-pressed="${t.type === 'gasto'}">Gasto</button>
       <button type="button" data-type="ingreso" aria-pressed="${t.type === 'ingreso'}">Ingreso</button>
-      <button type="button" data-type="transfer" aria-pressed="${t.type === 'transfer'}">↔ Mover</button>
+      ${accList().length > 1 || t.type === 'transfer' ? `<button type="button" data-type="transfer" aria-pressed="${t.type === 'transfer'}">↔ Mover</button>` : ''}
     </div>
     ${amountField(t.amount)}
     <div id="s-normal">
       <div class="field"><label id="s-acc-l"></label>
-        <div class="seg acc-seg" id="s-acc">${ACCOUNTS.map(a => `<button type="button" data-acc="${a.id}" aria-pressed="${t.acc === a.id}">${a.emoji} ${esc(a.name)}</button>`).join('')}</div>
+        ${accPicker('s-acc', t.acc)}
       </div>
       <div class="catgrid" id="s-cats">${t.type === 'transfer' ? '' : catGrid(t.type, t.cat)}</div>
     </div>
     <div id="s-xfer">
-      <div class="chips" id="s-xpre">
-        <button type="button" class="chip" data-xpre="tarjeta">🏧 Sacar efectivo</button>
-        <button type="button" class="chip" data-xpre="efectivo">🏦 Ingresar efectivo</button>
-      </div>
-      <div class="flow"><div class="end" id="s-from"></div><button type="button" class="swap" id="s-swap" aria-label="Invertir dirección">⇄</button><div class="end" id="s-to"></div></div>
-      <p class="hint">Mover dinero entre tarjeta y efectivo no cuenta como gasto ni como ingreso: solo cambia dónde está.</p>
+      ${hasCash() ? `<div class="chips" id="s-xpre">
+        <button type="button" class="chip" data-xpre="to-cash">🏧 Sacar efectivo</button>
+        <button type="button" class="chip" data-xpre="from-cash">🏦 Ingresar efectivo</button>
+      </div>` : ''}
+      <div class="field"><label>Desde</label><div id="s-from-box"></div></div>
+      <div style="text-align:center;margin:-6px 0 2px"><button type="button" class="swap" id="s-swap" aria-label="Invertir dirección">⇅</button></div>
+      <div class="field"><label>Hacia</label><div id="s-to-box"></div></div>
+      <p class="hint">Mover dinero entre tus cuentas no cuenta como gasto ni como ingreso: solo cambia dónde está.</p>
     </div>
     <div class="field"><label for="s-note">Nota</label><input id="s-note" maxlength="80" value="${esc(t.note || '')}"></div>
     <div class="field"><label for="s-date" style="display:flex;justify-content:space-between;align-items:center">Fecha${isNew ? '' : `<button type="button" class="link" id="s-today" style="font-size:13px;padding:0;min-height:0">Fue hoy</button>`}</label><input type="date" id="s-date" value="${t.date}"></div>
@@ -1826,10 +1944,13 @@ function openTxSheet(tx, preset = {}) {
       if ($s('#s-rec-row')) $s('#s-rec-row').hidden = xfer;
       $s('#s-acc-l').textContent = t.type === 'ingreso' ? '¿Dónde lo recibiste?' : '¿Cómo pagaste?';
       $s('#s-note').placeholder = xfer ? 'Ej: cajero del banco' : t.type === 'ingreso' ? 'Ej: nómina, venta…' : 'Ej: almuerzo, Netflix…';
-      const f = accOf(t.from), to = accOf(t.to);
-      $s('#s-from').innerHTML = `<small>Desde</small>${f.emoji} ${esc(f.name)}`;
-      $s('#s-to').innerHTML = `<small>Hacia</small>${to.emoji} ${esc(to.name)}`;
-      sh.querySelectorAll('#s-xpre button').forEach(b => b.setAttribute('aria-pressed', b.dataset.xpre === t.from));
+      if (t.from === t.to) t.to = otherAcc(t.from);
+      $s('#s-from-box').innerHTML = accPicker('s-from', t.from);
+      $s('#s-to-box').innerHTML = accPicker('s-to', t.to);
+      const same = $s(`#s-to [data-acc="${t.from}"]`);
+      if (same) same.disabled = true;   // no se puede mover a la misma cuenta
+      sh.querySelectorAll('#s-xpre button').forEach(b => b.setAttribute('aria-pressed',
+        b.dataset.xpre === 'to-cash' ? t.to === 'efectivo' : t.from === 'efectivo'));
     };
     sync();
 
@@ -1851,9 +1972,20 @@ function openTxSheet(tx, preset = {}) {
       t.cat = b.dataset.cat;
       sh.querySelectorAll('#s-cats button').forEach(x => x.setAttribute('aria-pressed', x === b));
     };
-    $s('#s-xpre').onclick = e => {
+    const xpre = $s('#s-xpre');
+    if (xpre) xpre.onclick = e => {
       const b = e.target.closest('[data-xpre]'); if (!b) return;
-      t.from = b.dataset.xpre; t.to = otherAcc(t.from); sync();
+      if (b.dataset.xpre === 'to-cash') { if (t.from === 'efectivo') t.from = nonCash(); t.to = 'efectivo'; }
+      else { if (t.to === 'efectivo') t.to = nonCash(); t.from = 'efectivo'; }
+      sync();
+    };
+    $s('#s-from-box').onclick = e => {
+      const b = e.target.closest('[data-acc]'); if (!b) return;
+      t.from = b.dataset.acc; if (t.to === t.from) t.to = otherAcc(t.from); sync();
+    };
+    $s('#s-to-box').onclick = e => {
+      const b = e.target.closest('[data-acc]'); if (!b || b.disabled) return;
+      t.to = b.dataset.acc; sync();
     };
     $s('#s-swap').onclick = () => { [t.from, t.to] = [t.to, t.from]; sync(); };
 
@@ -1863,6 +1995,7 @@ function openTxSheet(tx, preset = {}) {
       const date = $s('#s-date').value || today();
       const note = $s('#s-note').value.trim();
       if (t.type === 'transfer') {
+        if (t.from === t.to || !isAcc(t.from) || !isAcc(t.to)) return toast('Elige dos cuentas distintas');
         const data = { type: 'transfer', amount, from: t.from, to: t.to, date, note };
         if (isNew) state.txs.push({ id: uid(), ...data });
         else {
@@ -1870,7 +2003,7 @@ function openTxSheet(tx, preset = {}) {
           Object.assign(x, data);
           delete x.cat; delete x.acc; delete x.rec;
         }
-        toast(isNew ? (t.to === 'efectivo' ? 'Retiro de efectivo registrado' : 'Ingreso de efectivo registrado') : 'Cambios guardados');
+        toast(isNew ? (t.to === 'efectivo' ? 'Retiro de efectivo registrado' : t.from === 'efectivo' ? 'Ingreso de efectivo registrado' : 'Movimiento entre cuentas registrado') : 'Cambios guardados');
       } else {
         if (!t.cat) return toast('Elige una categoría');
         const data = { type: t.type, amount, cat: t.cat, date, note, acc: t.acc };
@@ -1927,7 +2060,7 @@ function openRecSheet(rec, kind) {
   const r = rec ? { ...rec, freq: rec.freq || 'month' } : {
     type: kind === 'ingreso' ? 'ingreso' : 'gasto',
     cat: kind === 'sub' ? 'Suscripciones' : (state.cats.find(c => c.type === (kind === 'ingreso' ? 'ingreso' : 'gasto') && c.name !== 'Suscripciones') || {}).name || '',
-    note: '', amount: '', freq: 'month', emoji: '', active: true, acc: 'tarjeta',
+    note: '', amount: '', freq: 'month', emoji: '', active: true, acc: defaultAcc(),
   };
   const sub = isSub(r);
   const title = isNew ? (sub ? 'Nueva suscripción' : kind === 'ingreso' ? 'Nuevo ingreso fijo' : 'Nuevo gasto fijo')
@@ -1941,7 +2074,7 @@ function openRecSheet(rec, kind) {
     ${amountField(r.amount)}
     <div class="seg" id="s-freq"><button type="button" data-freq="month" aria-pressed="${r.freq !== 'year'}">Mensual</button><button type="button" data-freq="year" aria-pressed="${r.freq === 'year'}">Anual</button></div>
     <div class="field"><label>${r.type === 'ingreso' ? '¿Dónde lo recibes?' : '¿Cómo se paga?'}</label>
-      <div class="seg acc-seg" id="s-acc">${ACCOUNTS.map(a => `<button type="button" data-acc="${a.id}" aria-pressed="${(r.acc || 'tarjeta') === a.id}">${a.emoji} ${esc(a.name)}</button>`).join('')}</div></div>
+      ${accPicker('s-acc', isAcc(r.acc) ? r.acc : defaultAcc())}</div>
     ${sub ? '' : `<div class="catgrid" id="s-cats">${catGrid(r.type, r.cat)}</div>`}
     <div class="field"><label for="s-date">Próximo cobro</label><input type="date" id="s-date" value="${dateVal}"></div>
     <label class="switch-row"><span>${r.type === 'ingreso' ? 'Confirmar cada cobro' : 'Confirmar cada pago'}<small>En su fecha no se registra solo: te avisa en Inicio y lo marcas cuando de verdad ${r.type === 'ingreso' ? 'llegue' : 'lo pagues'}. Útil si a veces ${r.type === 'ingreso' ? 'te pagan' : 'pagas'} tarde.</small></span><input type="checkbox" class="switch" id="s-confirm" ${r.confirm ? 'checked' : ''}></label>
@@ -1961,6 +2094,7 @@ function openRecSheet(rec, kind) {
       : `<label class="switch-row"><span>Activa<small>Pausa sin borrarla</small></span><input type="checkbox" class="switch" id="s-active" ${r.active ? 'checked' : ''}></label>
          <p class="hint">Los cambios aplican a los próximos cobros; lo ya registrado no cambia.</p>`}
     <button class="btn primary block" id="s-save">${isNew ? 'Agregar' : 'Guardar cambios'}</button>
+    ${!isNew && r.type === 'gasto' ? `<button class="btn block" id="s-reserve">🔒 Apartar dinero para este fijo</button>` : ''}
     ${!isNew && r.confirm && r.active ? `<button class="btn block" id="s-pay">✅ ${r.type === 'ingreso' ? 'Registrar cobro' : 'Registrar pago'} de ${esc(monthLbl(nextChargeMonth(r)))}</button>` : ''}
     ${isNew ? '' : `<button class="btn block" id="s-adv">⏩ ${r.type === 'ingreso' ? 'Registrar cobro adelantado' : 'Pagar por adelantado'}</button>
       <p class="hint" style="margin:6px 4px 0">${r.type === 'ingreso' ? '¿Te pagaron varios meses juntos?' : '¿Pagaste varios meses de una vez?'} Regístralo aquí y esos meses no se contarán dos veces.</p>`}
@@ -2051,7 +2185,7 @@ function openRecSheet(rec, kind) {
       if (!date) return toast('Elige la fecha del próximo cobro');
       if (!r.cat) return toast('Elige una categoría');
       if (isNew) {
-        const nr = { id: uid(), type: r.type, amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active: true, acc: r.acc || 'tarjeta', confirm: sh.querySelector('#s-confirm').checked };
+        const nr = { id: uid(), type: r.type, amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active: true, acc: isAcc(r.acc) ? r.acc : defaultAcc(), confirm: sh.querySelector('#s-confirm').checked };
         setNextCharge(nr, date);
         state.recs.push(nr);
         let advN = 0;
@@ -2076,7 +2210,7 @@ function openRecSheet(rec, kind) {
       const t = state.recs.find(x => x.id === rec.id);
       const active = sh.querySelector('#s-active').checked;
       const freqChanged = (t.freq || 'month') !== r.freq;
-      Object.assign(t, { amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active, acc: r.acc || 'tarjeta', confirm: sh.querySelector('#s-confirm').checked });
+      Object.assign(t, { amount, cat: r.cat, note, emoji: r.emoji || '', freq: r.freq, active, acc: isAcc(r.acc) ? r.acc : defaultAcc(), confirm: sh.querySelector('#s-confirm').checked });
       if (date !== dateVal || freqChanged) setNextCharge(t, date);
       else if (active && !rec.active) {
         // Al reactivar no se cobran los meses en pausa: salta al próximo cobro desde hoy
@@ -2091,6 +2225,8 @@ function openRecSheet(rec, kind) {
     if (del) del.onclick = () => { closeSheet(); removeRec(rec.id); };
     const advBtn = sh.querySelector('#s-adv');
     if (advBtn) advBtn.onclick = () => openAdvanceSheet(state.recs.find(x => x.id === rec.id));
+    const resBtn = sh.querySelector('#s-reserve');
+    if (resBtn) resBtn.onclick = () => openReserveSheet(null, { recId: rec.id });
     const payBtn = sh.querySelector('#s-pay');
     if (payBtn) payBtn.onclick = () => openPaySheet(state.recs.find(x => x.id === rec.id));
   });
@@ -2102,7 +2238,7 @@ function openPaySheet(r) {
   const ym = nextChargeMonth(r), due = chargeDate(r, ym);
   const days = Math.round((new Date(today() + 'T12:00') - new Date(due + 'T12:00')) / 86400000);
   const when = days > 0 ? `hace ${days} ${days === 1 ? 'día' : 'días'}` : days < 0 ? `en ${-days} ${days === -1 ? 'día' : 'días'}` : 'hoy';
-  let acc = r.acc || 'tarjeta';
+  let acc = isAcc(r.acc) ? r.acc : defaultAcc();
   openSheet(`
     <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>${inc ? 'Confirmar cobro' : 'Confirmar pago'}</h3><span style="width:70px"></span></div>
     <div class="opening-row" style="cursor:default">
@@ -2111,7 +2247,7 @@ function openPaySheet(r) {
     </div>
     ${amountField(r.amount)}
     <div class="field"><label>${inc ? '¿Dónde lo recibiste?' : '¿Cómo pagaste?'}</label>
-      <div class="seg acc-seg" id="p-acc">${ACCOUNTS.map(a => `<button type="button" data-acc="${a.id}" aria-pressed="${acc === a.id}">${a.emoji} ${esc(a.name)}</button>`).join('')}</div>
+      ${accPicker('p-acc', acc)}
     </div>
     <div class="field"><label for="p-date">${inc ? '¿Cuándo lo recibiste?' : '¿Cuándo lo pagaste?'}</label><input type="date" id="p-date" value="${today()}"></div>
     <div class="field"><label for="p-note">Nota</label><input id="p-note" maxlength="80" value="${esc(r.note || '')}"></div>
@@ -2152,7 +2288,7 @@ function openAdvanceSheet(r) {
   const inc = r.type === 'ingreso', step = recStep(r), yearly = step === 12;
   const first = nextChargeMonth(r);
   const maxN = yearly ? 5 : 24;
-  let n = 1, edited = false, acc = r.acc || 'tarjeta';
+  let n = 1, edited = false, acc = isAcc(r.acc) ? r.acc : defaultAcc();
   // Si el cobro anterior ya se registró solo (p. ej. el de este mes, con su fecha automática),
   // el adelanto puede incluirlo: ese registro se reemplaza por el adelanto con la fecha real.
   const prevYm = shiftMonth(first, -step);
@@ -2178,10 +2314,15 @@ function openAdvanceSheet(r) {
     <div class="field"><label>${inc ? 'Total recibido' : 'Total pagado'}</label></div>
     ${amountField(r.amount)}
     <div class="field"><label>${inc ? '¿Dónde lo recibiste?' : '¿Cómo pagaste?'}</label>
-      <div class="seg acc-seg" id="a-acc">${ACCOUNTS.map(a => `<button type="button" data-acc="${a.id}" aria-pressed="${acc === a.id}">${a.emoji} ${esc(a.name)}</button>`).join('')}</div>
+      ${accPicker('a-acc', acc)}
     </div>
     <div class="field"><label for="a-date">${inc ? 'Fecha en que lo recibiste' : 'Fecha del pago'}</label><input type="date" id="a-date" value="${today()}"></div>
     <div class="field"><label for="a-note">Nota</label><input id="a-note" maxlength="80"></div>
+    ${inc && state.recs.some(x => x.type === 'gasto' && x.active) ? `
+      <label class="switch-row"><span>Apartar este dinero<small>Si es para pagar un gasto fijo (p. ej. el arriendo), resérvalo: seguirá en tu cuenta pero no contará como disponible y se descontará solo al pagar ese fijo.</small></span><input type="checkbox" class="switch" id="a-res"></label>
+      <div class="field" id="a-res-box" hidden><label>¿Para qué gasto fijo?</label>
+        <div class="chips" id="a-res-for">${state.recs.filter(x => x.type === 'gasto' && x.active).map((x, i) => `<button type="button" class="chip" data-for="${esc(x.id)}" aria-pressed="${i === 0}">${esc(recEmoji(x))} ${esc(x.note || x.cat)}</button>`).join('')}</div>
+      </div>` : ''}
     <button class="btn primary block" id="a-save">Registrar adelanto</button>
   `, sh => {
     const amt = wireAmount(sh);
@@ -2213,6 +2354,17 @@ function openAdvanceSheet(r) {
       acc = b.dataset.acc;
       sh.querySelectorAll('#a-acc button').forEach(x => x.setAttribute('aria-pressed', x === b));
     };
+    // Apartar el adelanto para un gasto fijo
+    const resBox = sh.querySelector('#a-res');
+    let resFor = (sh.querySelector('#a-res-for [aria-pressed="true"]') || {}).dataset?.for || null;
+    if (resBox) {
+      resBox.onchange = () => { sh.querySelector('#a-res-box').hidden = !resBox.checked; };
+      sh.querySelector('#a-res-for').onclick = e => {
+        const b = e.target.closest('[data-for]'); if (!b) return;
+        resFor = b.dataset.for;
+        sh.querySelectorAll('#a-res-for button').forEach(x => x.setAttribute('aria-pressed', x === b));
+      };
+    }
     sh.querySelector('#a-save').onclick = () => {
       const amount = parseAmount(amt.value);
       if (!(amount > 0)) { amt.focus(); return toast('Escribe el total'); }
@@ -2227,8 +2379,14 @@ function openAdvanceSheet(r) {
         rec: r.id, adv: { recId: r.id, prevLast, newLast, months: c },
       });
       rule.last = newLast;   // los cobros automáticos siguen después del último mes cubierto
+      const target = resBox && resBox.checked ? state.recs.find(x => x.id === resFor) : null;
+      if (target) {
+        // Mismos meses que cubre el adelanto: cada pago de ese fijo se descuenta de aquí
+        state.reserves.push({ id: uid(), name: target.note || target.cat, emoji: recEmoji(target), amount, acc,
+          recId: target.id, fromMonth: c[0], toMonth: c[c.length - 1], months: c.length });
+      }
       save(); closeSheet(); render();
-      toast(`Adelanto registrado · ${n} ${unit(n)} cubiertos`);
+      toast(`Adelanto registrado · ${n} ${unit(n)} cubiertos${target ? ' · dinero apartado' : ''}`);
     };
   });
 }
@@ -2304,35 +2462,38 @@ function openContribSheet(goal, sign) {
 /* Saldo inicial: fila de acceso (en la hoja del +) y hoja para definirlo */
 function openingRow() {
   const o = state.opening;
+  const known = knownAccs();
   return `<button type="button" class="opening-row" id="s-opening">
     <span class="e">🏦</span>
-    <span class="m"><b>Saldos iniciales</b><span>${o
-      ? `${ACCOUNTS.map(a => `${a.emoji} ${esc(money(openingOf(a.id)))}`).join(' · ')} · desde el ${esc(shortDate(o.date))}`
-      : 'Tarjeta y efectivo: aún no los has definido'}</span></span>
-    <span class="go">${o ? 'Modificar' : 'Definir'} ›</span>
+    <span class="m"><b>Saldos iniciales</b><span>${o && known.length
+      ? `${known.map(accOf).map(a => `${a.emoji} ${esc(money(openingOf(a.id)))}`).join(' · ')} · desde el ${esc(shortDate(o.date))}`
+      : 'Aún no los has definido'}</span></span>
+    <span class="go">${o && known.length ? 'Modificar' : 'Definir'} ›</span>
   </button>`;
 }
-// Saldo inicial de cada cuenta (tarjeta y efectivo) en una misma fecha de inicio
+// Saldo inicial de cada cuenta en una misma fecha de inicio. Una cuenta en blanco
+// queda "sin saldo conocido" y no suma al total.
 function openOpeningSheet() {
   const o = state.opening;
-  const sign = Object.fromEntries(ACCOUNTS.map(a => [a.id, o && openingOf(a.id) < 0 ? -1 : 1]));
+  const accs = accAll().filter(a => !a.archived || (o && a.id in o.amounts));
+  const sign = Object.fromEntries(accs.map(a => [a.id, o && openingOf(a.id) < 0 ? -1 : 1]));
   const after = /^\d/.test(money(1));
   const sym = `<span class="cur">${esc(curSymbol())}</span>`;
-  const shown = n => !n ? '' : zeroDec() || Number.isInteger(n) ? String(Math.abs(Math.round(n))) : Math.abs(n).toFixed(2).replace('.', ',');
+  const shown = id => !o || !(id in o.amounts) ? '' : amtStr(Math.abs(o.amounts[id]));
   openSheet(`
     <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>Saldos iniciales</h3><span style="width:70px"></span></div>
-    <p class="hint" style="margin:0 4px 12px">Cuánto dinero tenías en cada sitio en la fecha que elijas. Desde ahí la app suma tus ingresos y resta tus gastos de cada uno para mostrarte cuánto te queda.</p>
+    <p class="hint" style="margin:0 4px 12px">Cuánto dinero tenías en cada cuenta en la fecha que elijas. Desde ahí la app suma tus ingresos y resta tus gastos de cada una para mostrarte cuánto te queda. Deja en blanco las cuentas que no quieras contar.</p>
     <div class="field"><label for="o-date">Fecha de esos saldos</label><input type="date" id="o-date" value="${o ? o.date : today()}"></div>
-    ${ACCOUNTS.map(a => `<div class="o-acc">
+    ${accs.map(a => `<div class="o-acc">
       <span class="h">${a.emoji} ${esc(a.name)}</span>
       <span class="o-in">
-        <button type="button" class="sign ${sign[a.id] < 0 ? 'neg' : ''}" data-sign="${a.id}" aria-label="Cambiar signo de ${esc(a.name)}">${sign[a.id] < 0 ? '−' : '+'}</button>
-        ${after ? '' : sym}<input class="inp" inputmode="decimal" autocomplete="off" id="o-${a.id}" placeholder="0" value="${o ? shown(openingOf(a.id)) : ''}" aria-label="Saldo inicial de ${esc(a.name)}">${after ? sym : ''}
+        <button type="button" class="sign ${sign[a.id] < 0 ? 'neg' : ''}" data-sign="${esc(a.id)}" aria-label="Cambiar signo de ${esc(a.name)}">${sign[a.id] < 0 ? '−' : '+'}</button>
+        ${after ? '' : sym}<input class="inp" inputmode="decimal" autocomplete="off" data-oacc="${esc(a.id)}" placeholder="—" value="${shown(a.id)}" aria-label="Saldo inicial de ${esc(a.name)}">${after ? sym : ''}
       </span>
     </div>`).join('')}
-    <p class="hint" style="margin:-2px 4px 12px">Toca <b>+</b> para ponerlo en negativo si la tarjeta estaba en descubierto.</p>
+    <p class="hint" style="margin:-2px 4px 12px">Toca <b>+</b> para ponerlo en negativo si la cuenta estaba en descubierto.</p>
     <div class="card" style="background:var(--surface-2);margin:0;padding:12px 14px">
-      <div class="w-row" style="margin:0"><span>Saldo disponible hoy</span><b id="o-prev">—</b></div>
+      <div class="w-row" style="margin:0"><span>Saldo en tus cuentas hoy</span><b id="o-prev">—</b></div>
       <div class="w-row" style="margin:4px 0 0" id="o-split"></div>
       <div class="muted" style="font-size:12px;margin-top:6px" id="o-note"></div>
     </div>
@@ -2340,31 +2501,35 @@ function openOpeningSheet() {
     ${o ? `<button class="btn danger block" id="o-del">Quitar saldos iniciales</button>` : ''}
   `, sh => {
     const dateInp = sh.querySelector('#o-date');
-    const inputs = Object.fromEntries(ACCOUNTS.map(a => [a.id, sh.querySelector(`#o-${a.id}`)]));
-    if (!o) setTimeout(() => inputs.tarjeta.focus(), 50);
+    const inputs = Object.fromEntries(accs.map(a => [a.id, sh.querySelector(`[data-oacc="${a.id}"]`)]));
+    if (!o && accs.length) setTimeout(() => inputs[accs[0].id].focus(), 50);
+    // Lee los montos: en blanco = cuenta sin saldo conocido
     const read = () => {
       const amounts = {};
-      for (const a of ACCOUNTS) {
-        const v = parseAmount(inputs[a.id].value || '0');
+      for (const a of accs) {
+        const raw = inputs[a.id].value.trim();
+        if (!raw) continue;
+        const v = parseAmount(raw);
         if (!Number.isFinite(v) || v < 0) return null;
         amounts[a.id] = sign[a.id] * v;
       }
       return { date: dateInp.value || today(), amounts };
     };
-    // Vista previa: cómo quedarían los saldos de hoy con estos saldos iniciales
     const preview = () => {
       const r = read(), now = today();
       const prev = sh.querySelector('#o-prev'), split = sh.querySelector('#o-split'), note = sh.querySelector('#o-note');
-      if (!r || r.date > now) {
+      if (!r || r.date > now || !Object.keys(r.amounts).length) {
         prev.textContent = '—'; split.innerHTML = '';
-        note.textContent = !r ? 'Revisa los montos.' : 'La fecha es futura: los saldos empezarán a contar ese día.';
+        note.textContent = !r ? 'Revisa los montos.' : r.date > now ? 'La fecha es futura: los saldos empezarán a contar ese día.' : 'Escribe el saldo de al menos una cuenta.';
         return;
       }
+      const ids = Object.keys(r.amounts);
       const after = state.txs.filter(t => t.date >= r.date && t.date <= now);
-      const bal = acc => (acc ? r.amounts[acc] : Object.values(r.amounts).reduce((s, v) => s + v, 0)) + after.reduce((s, t) => s + txDelta(t, acc), 0);
-      prev.textContent = money(bal());
-      prev.className = bal() < 0 ? 'neg' : '';
-      split.innerHTML = ACCOUNTS.map(a => `<span>${a.emoji} ${esc(a.name)} <b class="${bal(a.id) < 0 ? 'neg' : ''}">${esc(money(bal(a.id)))}</b></span>`).join('');
+      const bal = id => r.amounts[id] + after.reduce((s, t) => s + txDelta(t, id), 0);
+      const total = ids.reduce((s, id) => s + bal(id), 0);
+      prev.textContent = money(total);
+      prev.className = total < 0 ? 'neg' : '';
+      split.innerHTML = ids.map(accOf).map(a => `<span>${a.emoji} ${esc(a.name)} <b class="${bal(a.id) < 0 ? 'neg' : ''}">${esc(money(bal(a.id)))}</b></span>`).join('');
       const before = state.txs.filter(t => t.date < r.date).length;
       note.textContent = `Se ${after.length === 1 ? 'suma 1 movimiento' : `suman ${after.length} movimientos`} desde esa fecha.` +
         (before ? ` Los ${before} anteriores no cuentan (ya están dentro de estos saldos).` : '');
@@ -2382,6 +2547,7 @@ function openOpeningSheet() {
     sh.querySelector('#o-save').onclick = () => {
       const r = read();
       if (!r) return toast('Escribe montos válidos');
+      if (!Object.keys(r.amounts).length) return toast('Escribe el saldo de al menos una cuenta');
       state.opening = r;
       save(); closeSheet(); render();
       toast('Saldos iniciales guardados');
@@ -2392,6 +2558,183 @@ function openOpeningSheet() {
       state.opening = null;
       save(); closeSheet(); render();
       toast('Saldos iniciales quitados', () => { state.opening = old; save(); render(); });
+    };
+  });
+}
+
+/* Cuentas: crear, renombrar, archivar o eliminar (solo si no tiene movimientos) */
+const ACC_EMOJIS = ['🏦', '💳', '💵', '📱', '🐷', '💶', '🏧', '💰', '🪙', '💼', '🏠', '✈️'];
+function openAccountSheet(acc) {
+  const isNew = !acc;
+  const a = acc ? { ...acc } : { name: '', emoji: '🏦' };
+  const used = !isNew && (state.txs.some(t => t.acc === a.id || t.from === a.id || t.to === a.id) || state.recs.some(r => r.acc === a.id) || state.reserves.some(r => r.acc === a.id));
+  const activeCount = accList().length;
+  const bal = isNew ? null : balanceAt(today(), a.id);
+  openSheet(`
+    <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>${isNew ? 'Nueva cuenta' : 'Cuenta'}</h3><span style="width:70px"></span></div>
+    <div class="field"><label for="ac-name">Nombre</label><input id="ac-name" maxlength="30" placeholder="Ej: Bancolombia, Nequi, Ahorros" value="${esc(a.name)}"></div>
+    <div class="field"><label>Ícono</label><div class="chips" id="ac-emoji">${ACC_EMOJIS.map(e => `<button type="button" class="chip" style="font-size:20px;padding:4px 10px" data-e="${e}" aria-pressed="${e === a.emoji}">${e}</button>`).join('')}</div></div>
+    ${isNew ? `
+      <div class="field"><label>¿Cuánto tienes hoy en esta cuenta? <span class="muted">(opcional)</span></label></div>
+      ${amountField('')}
+      <label class="switch-row"><span>Saldo negativo<small>Si está en descubierto</small></span><input type="checkbox" class="switch" id="ac-neg"></label>`
+    : `<div class="card" style="background:var(--surface-2);margin:0 0 12px;padding:12px 14px">
+        <div class="w-row" style="margin:0"><span>Saldo hoy</span><b>${bal === null ? 'Sin saldo inicial' : esc(money(bal))}</b></div>
+        ${reservedIn(a.id) ? `<div class="w-row" style="margin:4px 0 0"><span>🔒 Apartado</span><b>${esc(money(reservedIn(a.id)))}</b></div>` : ''}
+        <button class="link" id="ac-open" style="font-size:14px;padding:6px 0 0;min-height:0">Cambiar saldo inicial ›</button>
+      </div>`}
+    <button class="btn primary block" id="ac-save">${isNew ? 'Crear cuenta' : 'Guardar'}</button>
+    ${isNew ? '' : a.archived
+      ? `<button class="btn block" id="ac-arch">Reactivar cuenta</button>`
+      : activeCount > 1 ? `<button class="btn block" id="ac-arch">Archivar cuenta</button><p class="hint" style="margin-top:6px">Archivarla la oculta al registrar movimientos, pero conserva su historial y su saldo.</p>` : ''}
+    ${!isNew && !used && accAll().length > 1 ? `<button class="btn danger block" id="ac-del">Eliminar cuenta</button>` : ''}
+  `, sh => {
+    let emoji = a.emoji;
+    sh.querySelector('#ac-emoji').onclick = e => {
+      const b = e.target.closest('[data-e]'); if (!b) return;
+      emoji = b.dataset.e;
+      sh.querySelectorAll('#ac-emoji button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    };
+    const amt = isNew ? wireAmount(sh) : null;
+    if (isNew) setTimeout(() => sh.querySelector('#ac-name').focus(), 50);
+    const openBtn = sh.querySelector('#ac-open');
+    if (openBtn) openBtn.onclick = () => openOpeningSheet();
+    sh.querySelector('#ac-save').onclick = () => {
+      const name = sh.querySelector('#ac-name').value.trim();
+      if (!name) return toast('Ponle un nombre a la cuenta');
+      if (state.accounts.some(x => x.id !== a.id && x.name.toLowerCase() === name.toLowerCase())) return toast('Ya tienes una cuenta con ese nombre');
+      if (isNew) {
+        // Color propio: el primer slot libre (las cuentas 6.ª en adelante van en gris)
+        const usedSlots = new Set(state.accounts.map(x => x.slot));
+        let slot = null;
+        for (let i = 0; i < ACC_SLOTS; i++) if (!usedSlots.has(i)) { slot = i; break; }
+        const na = { id: 'acc_' + uid(), name, emoji, slot, archived: false };
+        state.accounts.push(na);
+        const raw = amt.value.trim();
+        if (raw) {
+          const v = parseAmount(raw);
+          if (!Number.isFinite(v) || v < 0) return toast('Revisa el saldo');
+          const amount = (sh.querySelector('#ac-neg').checked ? -1 : 1) * v;
+          // El saldo de hoy de una cuenta nueva (aún sin movimientos) vale como su saldo inicial
+          if (!state.opening) state.opening = { date: today(), amounts: {} };
+          state.opening.amounts[na.id] = amount;
+        }
+        save(); closeSheet(); render();
+        toast(`Cuenta «${name}» creada`);
+        return;
+      }
+      Object.assign(state.accounts.find(x => x.id === a.id), { name, emoji });
+      save(); closeSheet(); render(); toast('Cuenta actualizada');
+    };
+    const arch = sh.querySelector('#ac-arch');
+    if (arch) arch.onclick = () => {
+      const x = state.accounts.find(y => y.id === a.id);
+      x.archived = !x.archived;
+      if (x.archived && state.lastAcc === x.id) state.lastAcc = defaultAcc();
+      save(); closeSheet(); render(); toast(x.archived ? 'Cuenta archivada' : 'Cuenta reactivada');
+    };
+    const del = sh.querySelector('#ac-del');
+    if (del) del.onclick = () => {
+      if (!confirm(`¿Eliminar la cuenta «${a.name}»?`)) return;
+      state.accounts = state.accounts.filter(x => x.id !== a.id);
+      if (state.opening) delete state.opening.amounts[a.id];
+      if (state.lastAcc === a.id) state.lastAcc = defaultAcc();
+      save(); closeSheet(); render(); toast('Cuenta eliminada');
+    };
+  });
+}
+
+/* Apartar dinero: para un gasto fijo (se descuenta solo al pagarlo) o para otra cosa */
+function openReserveSheet(rv, preset = {}) {
+  const isNew = !rv;
+  const fixed = state.recs.filter(r => r.type === 'gasto' && (r.active || (rv && rv.recId === r.id)));
+  const d = rv ? { ...rv } : { name: '', emoji: '', amount: '', acc: defaultAcc(), recId: preset.recId || null, months: 1 };
+  let recId = d.recId && state.recs.some(r => r.id === d.recId) ? d.recId : null;
+  let months = d.months || 1, edited = !isNew, acc = isAcc(d.acc) ? d.acc : defaultAcc();
+  const rec = () => state.recs.find(r => r.id === recId);
+  const fromOf = r => isNew || !rv.fromMonth ? nextChargeMonth(r) : rv.fromMonth;
+  const coveredOf = r => Array.from({ length: months }, (_, i) => shiftMonth(fromOf(r), i * recStep(r)));
+  if (isNew && recId) acc = rec().acc || acc;
+  openSheet(`
+    <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>${isNew ? 'Apartar dinero' : 'Dinero apartado'}</h3><span style="width:70px"></span></div>
+    <p class="hint" style="margin:0 4px 12px">El dinero apartado sigue en tu cuenta, pero no cuenta como disponible para gastar.</p>
+    <div class="field"><label>¿Para qué es?</label>
+      <div class="chips" id="rv-for">
+        ${fixed.map(r => `<button type="button" class="chip" data-for="${esc(r.id)}" aria-pressed="${recId === r.id}">${esc(recEmoji(r))} ${esc(r.note || r.cat)}</button>`).join('')}
+        <button type="button" class="chip" data-for="" aria-pressed="${!recId}">✏️ Otra cosa</button>
+      </div>
+    </div>
+    <div id="rv-rec-box">
+      <div class="field"><label>¿Cuántos pagos cubre?</label>
+        <div class="stepper" id="rv-step"><button type="button" data-d="-1" aria-label="Menos">−</button><span id="rv-n"></span><button type="button" data-d="1" aria-label="Más">+</button></div></div>
+      <div class="card" style="background:var(--surface-2);margin:0 0 12px;padding:12px 14px">
+        <div class="w-row" style="margin:0"><span>Cubre</span><b id="rv-range"></b></div>
+        <div class="muted" style="font-size:12px;margin-top:4px">Cada vez que pagues ese fijo, se descuenta solo de este apartado.</div>
+      </div>
+    </div>
+    <div class="field" id="rv-name-box"><label for="rv-name">Nombre</label><input id="rv-name" maxlength="40" placeholder="Ej: Viaje de diciembre, impuestos…" value="${esc(d.name || '')}"></div>
+    <div class="field"><label>Monto apartado</label></div>
+    ${amountField(d.amount)}
+    <div class="field"><label>¿En qué cuenta está ese dinero?</label>${accPicker('rv-acc', acc)}</div>
+    <button class="btn primary block" id="rv-save">${isNew ? 'Apartar dinero' : 'Guardar'}</button>
+    ${isNew ? '' : `<button class="btn danger block" id="rv-del">Quitar apartado</button><p class="hint" style="margin-top:6px">Quitarlo no mueve dinero: solo vuelve a contarse como disponible.</p>`}
+  `, sh => {
+    const amt = wireAmount(sh);
+    let syncing = false;
+    amt.addEventListener('input', () => { if (!syncing) edited = true; });
+    const update = () => {
+      const r = rec();
+      sh.querySelector('#rv-rec-box').hidden = !r;
+      sh.querySelector('#rv-name-box').hidden = !!r;
+      sh.querySelectorAll('#rv-for button').forEach(b => b.setAttribute('aria-pressed', (b.dataset.for || null) === recId));
+      if (!r) return;
+      const c = coveredOf(r);
+      sh.querySelector('#rv-n').textContent = `${months} ${months === 1 ? 'pago' : 'pagos'}`;
+      sh.querySelector('#rv-step [data-d="-1"]').disabled = months <= 1;
+      sh.querySelector('#rv-step [data-d="1"]').disabled = months >= 24;
+      sh.querySelector('#rv-range').textContent = c.length === 1 ? monthLbl(c[0]) : `${monthLbl(c[0])} – ${monthLbl(c[c.length - 1])}`;
+      if (!edited) { syncing = true; amt.value = amtStr(r.amount * months); amt.dispatchEvent(new Event('input')); syncing = false; }
+    };
+    update();
+    sh.querySelector('#rv-for').onclick = e => {
+      const b = e.target.closest('[data-for]'); if (!b) return;
+      recId = b.dataset.for || null;
+      if (recId && isNew) { acc = rec().acc || acc; sh.querySelector('#rv-acc').outerHTML = accPicker('rv-acc', acc); bindAcc(); }
+      update();
+    };
+    sh.querySelector('#rv-step').onclick = e => {
+      const b = e.target.closest('[data-d]'); if (!b) return;
+      months = Math.max(1, Math.min(24, months + +b.dataset.d));
+      update();
+    };
+    const bindAcc = () => sh.querySelector('#rv-acc').onclick = e => {
+      const b = e.target.closest('[data-acc]'); if (!b) return;
+      acc = b.dataset.acc;
+      sh.querySelectorAll('#rv-acc button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    };
+    bindAcc();
+    sh.querySelector('#rv-save').onclick = () => {
+      const amount = parseAmount(amt.value);
+      if (!(amount > 0)) { amt.focus(); return toast('Escribe el monto'); }
+      const r = rec();
+      const name = r ? (r.note || r.cat) : sh.querySelector('#rv-name').value.trim();
+      if (!name) return toast('Ponle un nombre');
+      const data = { name, emoji: r ? recEmoji(r) : '🔒', amount, acc, recId: r ? r.id : null };
+      if (r) {
+        const c = coveredOf(r);
+        Object.assign(data, { fromMonth: c[0], toMonth: c[c.length - 1], months });
+      } else Object.assign(data, { fromMonth: null, toMonth: null, months: null });
+      if (isNew) state.reserves.push({ id: uid(), ...data });
+      else Object.assign(state.reserves.find(x => x.id === rv.id), data);
+      save(); closeSheet(); render();
+      toast(isNew ? `Apartados ${money(amount)}` : 'Apartado actualizado');
+    };
+    const del = sh.querySelector('#rv-del');
+    if (del) del.onclick = () => {
+      const i = state.reserves.findIndex(x => x.id === rv.id);
+      const [old] = state.reserves.splice(i, 1);
+      save(); closeSheet(); render();
+      toast('Apartado quitado', () => { state.reserves.splice(i, 0, old); save(); render(); });
     };
   });
 }
@@ -2662,9 +3005,11 @@ $('tx-acc').onclick = e => { const b = e.target.closest('[data-a]'); if (b) { tx
 $('search').addEventListener('input', () => renderTx());
 
 document.querySelector('main').addEventListener('click', e => {
-  const el = e.target.closest('[data-edit],[data-rec],[data-delrec],[data-newrec],[data-goal],[data-contrib],[data-withdraw],[data-goto],[data-delcat],[data-month],[data-customize],[data-opening],[data-xfer],[data-pay],button[id]');
+  const el = e.target.closest('[data-edit],[data-rec],[data-delrec],[data-newrec],[data-goal],[data-contrib],[data-withdraw],[data-goto],[data-delcat],[data-month],[data-customize],[data-opening],[data-xfer],[data-pay],[data-acc-edit],[data-reserve],button[id]');
   if (!el) return;
   const d = el.dataset;
+  if (d.accEdit) return openAccountSheet(d.accEdit === 'new' ? null : accOf(d.accEdit));
+  if (d.reserve) return openReserveSheet(d.reserve === 'new' ? null : state.reserves.find(x => x.id === d.reserve));
   if (d.pay) return openPaySheet(state.recs.find(r => r.id === d.pay));
   if (d.xfer) return openTxSheet(null, { type: 'transfer', from: d.xfer });
   if (d.customize !== undefined) return openWidgetsSheet();
