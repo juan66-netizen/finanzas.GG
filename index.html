@@ -148,8 +148,10 @@ main {
 .hero .avail { margin-top: 12px; width: 100%; display: flex; flex-direction: column; gap: 6px; background: var(--soft); border: 0; border-radius: 12px; padding: 10px 12px; font-size: 14px; color: var(--text-2); text-align: left; }
 .hero .avail .top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .hero .avail .top b { font-size: 17px; color: var(--text); white-space: nowrap; }
-.hero .avail .accs { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
-.hero .avail .accs b { color: var(--text); font-weight: 650; }
+.hero .accs { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.hero .accs b { color: var(--text); font-weight: 650; }
+.hero .avail .top.sub b { font-size: 15px; font-weight: 650; }
+.hero .avail .accs { padding-top: 6px; border-top: 1px solid var(--grid); }
 .hero .avail b.neg { color: var(--bad-text); }
 /* Selector de cuenta y cuentas */
 .acc-seg button { display: flex; align-items: center; justify-content: center; gap: 6px; }
@@ -609,6 +611,7 @@ function normalize(s) {
     lastBackup: s.lastBackup || null,
     opening,
     lastAcc: hasAcc(s.lastAcc) ? s.lastAcc : fallback,
+    goalsInAvail: s.goalsInAvail !== false,   // lo ahorrado en metas está en tus cuentas: no cuenta como disponible
   };
 }
 
@@ -835,7 +838,8 @@ const ACCENTS = [
   { id: 'morado', name: 'Morado', color: '#8b5cf6' },
 ];
 const WIDGETS = [
-  { id: 'resumen',       icon: '💶', name: 'Balance del periodo',        desc: 'Ingresos, gastos, balance y tasa de ahorro' },
+  { id: 'disponible',    icon: '🏦', name: 'Disponible para gastar',     desc: 'Tu dinero sin lo apartado ni lo de tus metas' },
+  { id: 'resumen',      icon: '💶', name: 'Balance del periodo',        desc: 'Ingresos, gastos, balance y tasa de ahorro' },
   { id: 'cuentas',       icon: '👛', name: 'Tus cuentas',                desc: 'Cuánto tienes en cada cuenta y cómo pagas' },
   { id: 'apartados',     icon: '🔒', name: 'Dinero apartado',            desc: 'Lo reservado para el arriendo u otros fijos' },
   { id: 'ritmo',         icon: '⏱️', name: 'Ritmo de gasto',             desc: 'Cuánto puedes gastar al día y cómo cerrarás el mes' },
@@ -1061,29 +1065,49 @@ const emptyMsg = msg => `<div class="empty">${msg}</div>`;
 const rightNote = txt => `<span class="muted" style="font-size:13px;font-weight:500">${txt}</span>`;
 const sumAmt = list => list.reduce((s, x) => s + x.amount, 0);
 
+/* Disponible para gastar: lo que hay en tus cuentas menos lo apartado y lo ahorrado en metas */
+const goalsSaved = () => state.goalsInAvail ? state.goals.reduce((s, g) => s + (+g.saved || 0), 0) : 0;
+const openingPrompt = txt => `<button class="avail" data-opening><span class="top"><span>🏦 ${txt}</span><b style="color:var(--link)">›</b></span></button>`;
+// Caja con el dinero de tus cuentas el día `ref` (tocarla abre los saldos iniciales).
+// Hoy descuenta lo apartado y lo ahorrado en metas. head: incluir la fila con el total.
+function availBox(ref, head) {
+  const now = today(), b = balanceAt(ref);
+  if (b === null) return '';
+  const reserved = ref === now ? reservedIn() : 0, goals = ref === now ? goalsSaved() : 0, free = b - reserved - goals;
+  const split = accAll().filter(a => balanceAt(ref, a.id) !== null && (!a.archived || balanceAt(ref, a.id)))
+    .map(a => { const v = balanceAt(ref, a.id); return `<span>${a.emoji} ${esc(a.name)} <b class="num ${v < 0 ? 'neg' : ''}">${esc(money(v))}</b></span>`; }).join('');
+  const row = (label, v, neg) => `<span class="top sub"><span>${label}</span><b class="num ${neg ? 'neg' : ''}">${v}</b></span>`;
+  const label = ref !== now ? `Saldo al cierre de ${esc(periodLabel())}` : reserved || goals ? 'Disponible para gastar' : 'Saldo disponible hoy';
+  return `<button class="avail" data-opening${head ? '' : ' style="margin-top:0"'}>
+    ${head ? `<span class="top"><span>🏦 ${label}</span><b class="num ${free < 0 ? 'neg' : ''}">${esc(money(free))}</b></span>` : ''}
+    ${!head || reserved || goals ? row('🏦 En tus cuentas', esc(money(b)), b < 0) : ''}
+    ${reserved ? row('🔒 Apartado', '−' + esc(money(reserved))) : ''}
+    ${goals ? row('🎯 En metas', '−' + esc(money(goals))) : ''}
+    <span class="accs">${split}</span></button>`;
+}
+function wDisponible() {
+  const now = today(), b = state.opening ? balanceAt(now) : null;
+  if (b === null) return `<div class="card hero"><div class="label">Disponible para gastar</div>${openingPrompt('Indica cuánto tienes en tus cuentas para ver cuánto puedes gastar')}</div>`;
+  const free = b - reservedIn() - goalsSaved();
+  return `<div class="card hero">
+    <div class="label">Disponible para gastar hoy</div>
+    <div class="big num ${free < 0 ? 'neg' : ''}">${esc(money(free))}</div>
+    ${availBox(now, false)}
+  </div>`;
+}
+
 /* Balance del periodo */
 function wResumen({ yearMode, year, t, p, elapsed }) {
   const rate = t.inc ? Math.round(t.bal / t.inc * 100) : null;
-  // Saldo disponible (requiere saldo inicial); tocarlo abre el ajuste del saldo inicial
-  let avail;
-  if (state.opening) {
-    const now = today();
-    const periodEnd = yearMode ? `${year}-12-31` : `${curMonth}-${pad(daysInMonth(curMonth))}`;
-    const ref = periodEnd >= now ? now : periodEnd;
-    const b = balanceAt(ref);
-    const split = accAll().filter(a => balanceAt(ref, a.id) !== null && (!a.archived || balanceAt(ref, a.id)))
-      .map(a => { const v = balanceAt(ref, a.id); return `<span>${a.emoji} ${esc(a.name)} <b class="num ${v < 0 ? 'neg' : ''}">${esc(money(v))}</b></span>`; }).join('');
-    // Hoy: lo apartado (p. ej. el arriendo ya cobrado de meses futuros) no se puede gastar
-    const reserved = ref === now ? reservedIn() : 0;
-    const free = b === null ? null : b - reserved;
-    avail = b === null ? ''
-      : `<button class="avail" data-opening>
-          <span class="top"><span>🏦 ${ref === now ? (reserved ? 'Disponible para gastar' : 'Saldo disponible hoy') : `Saldo al cierre de ${esc(periodLabel())}`}</span><b class="num ${free < 0 ? 'neg' : ''}">${esc(money(free))}</b></span>
-          ${reserved ? `<span class="accs"><span>En tus cuentas <b class="num">${esc(money(b))}</b></span><span>🔒 Apartado <b class="num">${esc(money(reserved))}</b></span></span>` : ''}
-          <span class="accs">${split}</span></button>`;
-  } else {
-    avail = `<button class="avail" data-opening><span class="top"><span>🏦 Define el saldo de tus cuentas para ver tu dinero disponible</span><b style="color:var(--link)">›</b></span></button>`;
-  }
+  // Saldo de tus cuentas: el de hoy ya está en «Disponible para gastar» (si ese widget está visible);
+  // al ver un periodo pasado, el saldo con que cerró
+  const now = today();
+  const periodEnd = yearMode ? `${year}-12-31` : `${curMonth}-${pad(daysInMonth(curMonth))}`;
+  const ref = periodEnd >= now ? now : periodEnd;
+  const dispShown = prefs.widgets.some(w => w.id === 'disponible' && w.on);
+  const avail = ref === now && dispShown ? ''
+    : state.opening ? availBox(ref, true)
+    : openingPrompt('Define el saldo de tus cuentas para ver tu dinero disponible');
   return `<div class="card hero">
     <div class="label">Balance de ${esc(periodLabel())}</div>
     <div class="big num ${t.bal < 0 ? 'neg' : ''}">${esc(money(t.bal))}</div>
@@ -1559,6 +1583,7 @@ function wMetas() {
 }
 
 const WIDGET_FNS = {
+  disponible: wDisponible,
   resumen: wResumen, cuentas: wCuentas, apartados: wApartados, ritmo: wRitmo, proximos: wProximos, saldo: wSaldo, categorias: wCategorias,
   cambios: wCambios, mayores: wMayores, fijos: wFijos, semana: wSemana,
   suscripciones: wSuscripciones, tendencia: wTendencia, metas: wMetas,
@@ -1777,7 +1802,8 @@ function renderGoals() {
       <button class="btn primary" id="first-goal">Nueva meta</button></div>`;
   } else {
     const saved = state.goals.reduce((s, g) => s + g.saved, 0), target = state.goals.reduce((s, g) => s + g.target, 0);
-    h += `<div class="card hero"><div class="label">Ahorrado en metas</div><div class="big num" style="margin-bottom:4px">${esc(money(saved))}</div><div class="muted">de ${esc(money(target))} en ${state.goals.length} ${state.goals.length === 1 ? 'meta' : 'metas'}</div></div>`;
+    h += `<div class="card hero"><div class="label">Ahorrado en metas</div><div class="big num" style="margin-bottom:4px">${esc(money(saved))}</div><div class="muted">de ${esc(money(target))} en ${state.goals.length} ${state.goals.length === 1 ? 'meta' : 'metas'}</div>
+      <label class="switch-row" style="margin:12px 0 0"><span>Descontarlo de tu disponible<small>Déjalo activado si ese dinero está en tus cuentas de la app: así Inicio no lo cuenta como dinero para gastar.</small></span><input type="checkbox" class="switch" id="goals-avail" ${state.goalsInAvail ? 'checked' : ''}></label></div>`;
     h += state.goals.map(g => `<div class="card">${goalBar(g)}
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="btn primary" style="flex:1;min-height:42px" data-contrib="${g.id}">+ Aportar</button>
@@ -1787,6 +1813,11 @@ function renderGoals() {
   }
   $('v-goals').innerHTML = h;
   const fg = $('first-goal'); if (fg) fg.onclick = () => openGoalSheet();
+  const ga = $('goals-avail');
+  if (ga) ga.onchange = () => {
+    state.goalsInAvail = ga.checked; save();
+    toast(ga.checked ? 'Lo de tus metas ya no cuenta como disponible' : 'Lo de tus metas vuelve a contar como disponible');
+  };
 }
 
 /* =========================================================
