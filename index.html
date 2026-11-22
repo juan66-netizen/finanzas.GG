@@ -3444,7 +3444,7 @@ function loadDemo() {
    solo ve bloques ilegibles con identificadores opacos. El código nunca sale
    del dispositivo.
    ========================================================= */
-const SYNC_URL = 'https://finanzas-sync.finanzas-sync.workers.dev';
+const SYNC_URL = 'https://finanzas-sync.pages.dev';   // la dirección workers.dev no carga en algunas redes
 const SYNC_META = STORE + '-sync';   // número de secuencia y huellas de lo ya sincronizado
 const SYNC_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // sin I, O, 0 ni 1 para que no se confundan
 const SYNC_ARR = { acc: 'accounts', tx: 'txs', rec: 'recs', goal: 'goals', res: 'reserves' };
@@ -3484,7 +3484,9 @@ async function openItem(keys, data) {
   return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(iv) }, keys.enc, unb64(ct))));
 }
 async function syncApi(keys, method, path, body) {
+  // Si en 20 s no responde, se rinde (si no, el botón se queda en "Conectando…" para siempre)
   const r = await fetch(SYNC_URL + path, {
+    signal: AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined,
     method, cache: 'no-store', body: body ? JSON.stringify(body) : undefined,
     headers: { Authorization: 'Bearer ' + keys.auth, ...(body ? { 'Content-Type': 'application/json' } : {}) },
   });
