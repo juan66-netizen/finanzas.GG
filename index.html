@@ -612,6 +612,8 @@ function normalize(s) {
     opening,
     lastAcc: hasAcc(s.lastAcc) ? s.lastAcc : fallback,
     goalsInAvail: s.goalsInAvail !== false,   // lo ahorrado en metas está en tus cuentas: no cuenta como disponible
+    // Sincronización entre dispositivos (solo el código; se guarda cifrado con el PIN si está activado)
+    syncCfg: s.syncCfg && /^[A-HJ-NP-Z2-9]{24}$/.test(s.syncCfg.code) ? { code: s.syncCfg.code } : null,
   };
 }
 
@@ -642,9 +644,11 @@ async function writeEnv(json) {
   localStorage.setItem(STORE, JSON.stringify(env));
 }
 let saveChain = Promise.resolve();
+let syncQuiet = false;   // true mientras se guardan cambios que llegaron de otro dispositivo
 function save() {
   const json = JSON.stringify(state);
   saveChain = saveChain.then(() => writeEnv(json)).catch(() => toast('No se pudo guardar'));
+  if (!syncQuiet) scheduleSync(600);
   return saveChain;
 }
 
@@ -931,7 +935,9 @@ function applyRecurring() {
     while (ym <= curYm) {
       const day = Math.min(r.day, daysInMonth(ym));
       if (ym === curYm && day > d) break;
-      state.txs.push({ id: uid(), type: r.type, amount: r.amount, cat: r.cat, note: r.note, date: `${ym}-${pad(day)}`, rec: r.id, acc: isAcc(r.acc) ? r.acc : defaultAcc() });
+      // Id fijo por fijo y mes: si dos dispositivos sincronizados lo registran, es el mismo movimiento
+      const id = `r${r.id}-${ym}`;
+      if (!state.txs.some(t => t.id === id)) state.txs.push({ id, type: r.type, amount: r.amount, cat: r.cat, note: r.note, date: `${ym}-${pad(day)}`, rec: r.id, acc: isAcc(r.acc) ? r.acc : defaultAcc() });
       r.last = ym; n++;
       ym = shiftMonth(ym, recStep(r));
     }
@@ -1842,6 +1848,11 @@ function renderSettings() {
     h += `<button class="row-set accent" id="pin-on" ${canCrypto ? '' : 'disabled'}>🔒 Activar bloqueo con PIN</button>`;
   }
   h += `</div><div class="set-f">${pinOn ? 'Tus datos están cifrados (AES-256) y se bloquea al salir de la app más de 1 minuto.' : canCrypto ? 'Pide un PIN de 6 dígitos al abrir y guarda tus datos cifrados.' : 'El cifrado requiere abrir la app desde https.'}</div>`;
+
+  h += `<div class="set-h">Sincronizar</div><div class="list">${state.syncCfg
+    ? `<button class="row-set" id="sync-open"><span>🔄 Sincronización activada</span><span class="muted"><span id="sync-st">${esc(syncStatusTxt())}</span> ›</span></button>`
+    : `<button class="row-set accent" id="sync-open" ${canCrypto ? '' : 'disabled'}>🔄 Usar en otro dispositivo</button>`}
+  </div><div class="set-f">${state.syncCfg ? 'Los cambios pasan entre tus dispositivos en segundos, cifrados con tu código.' : 'Ten los mismos datos en tu iPhone y en tu computador, cifrados de extremo a extremo.'}</div>`;
 
   // Cuentas: saldo de hoy de cada una; tocar abre su ficha
   const now = today();
@@ -3216,6 +3227,7 @@ document.querySelector('main').addEventListener('click', e => {
     case 'pin-on': return openLock('set');
     case 'pin-change': return openLock('verify', { onDone: () => openLock('set') });
     case 'pin-off': return openLock('verify', { onDone: async () => { cryptoKey = null; kdf = null; await save(); render(); toast('PIN desactivado'); } });
+    case 'sync-open': return openSyncSheet();
     case 'add-cat': return openCatSheet();
     case 'open-theme': return openThemeSheet();
     case 'open-opening': return openOpeningSheet();
@@ -3228,7 +3240,9 @@ document.querySelector('main').addEventListener('click', e => {
     case 'wipe':
       if (!confirm('¿Borrar TODOS tus movimientos, metas y ajustes? Esto no se puede deshacer.')) return;
       if (!confirm('¿Seguro? Te recomiendo guardar un respaldo antes.')) return;
-      try { localStorage.removeItem(STORE); } catch {}
+      // También deja de sincronizar este dispositivo (la copia del servidor y los demás dispositivos no cambian)
+      try { localStorage.removeItem(STORE); localStorage.removeItem(SYNC_META); } catch {}
+      state = null;
       location.reload();
   }
 });
@@ -3330,7 +3344,8 @@ function openBackupSheet() {
     <button class="btn primary block" id="b-go">Guardar archivo</button>
   `, sh => {
     sh.querySelector('#b-go').onclick = async () => {
-      const res = await shareFile(name, JSON.stringify({ ...state, prefs }, null, 2), 'application/json');
+      // El código de sincronización no va en el respaldo (el archivo no está cifrado)
+      const res = await shareFile(name, JSON.stringify({ ...state, syncCfg: undefined, prefs }, null, 2), 'application/json');
       if (res === 'cancelled') return toast('No se guardó el respaldo');
       state.lastBackup = today(); save(); render();
       sh.innerHTML = `<div class="grabber"></div>
@@ -3366,7 +3381,8 @@ function openRestoreSheet() {
         if (!Array.isArray(s.txs)) throw 0;
         const info = `${s.txs.length} movimientos, ${(s.recs || []).length} suscripciones/fijos y ${(s.goals || []).length} metas`;
         if (!confirm(`Este respaldo tiene ${info}.\n\n¿Reemplazar los datos actuales por estos?`)) { e.target.value = ''; return; }
-        state = normalize(s); applyRecurring(); await save();
+        const syncCfg = state.syncCfg;   // se sigue sincronizando: lo restaurado pasa a los demás dispositivos
+        state = normalize({ ...s, syncCfg }); applyRecurring(); await save();
         if (s.prefs) { prefs = normalizePrefs(s.prefs); savePrefs(); applyPrefs(); }
         closeSheet(); setTab('home'); toast('Respaldo restaurado');
       } catch { toast('Ese archivo no es un respaldo de Mis Finanzas'); e.target.value = ''; }
@@ -3422,6 +3438,285 @@ function loadDemo() {
 }
 
 /* =========================================================
+   Sincronización entre dispositivos (cifrada de extremo a extremo)
+   Cada registro (movimiento, fijo, meta, cuenta, apartado y la configuración)
+   se cifra aquí con claves derivadas del código de sincronización; el servidor
+   solo ve bloques ilegibles con identificadores opacos. El código nunca sale
+   del dispositivo.
+   ========================================================= */
+const SYNC_URL = 'https://finanzas-sync.finanzas-sync.workers.dev';
+const SYNC_META = STORE + '-sync';   // número de secuencia y huellas de lo ya sincronizado
+const SYNC_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // sin I, O, 0 ni 1 para que no se confundan
+const SYNC_ARR = { acc: 'accounts', tx: 'txs', rec: 'recs', goal: 'goals', res: 'reserves' };
+const TOMB = '-';
+const newSyncCode = () => [...crypto.getRandomValues(new Uint8Array(24))].map(v => SYNC_ABC[v & 31]).join('');   // 120 bits
+const fmtCode = c => c.match(/.{4}/g).join('-');
+const cleanCode = s => String(s).toUpperCase().replace(/[^A-Z0-9]/g, '');
+const validCode = c => c.length === 24 && [...c].every(ch => SYNC_ABC.includes(ch));
+let syncKeysP = null, syncKeysFor = null, syncBusy = false, syncAgain = false, syncTimer = null, syncPoll = null;
+const syncStatus = { ok: null, at: 0, err: '' };
+const memo = { id: new Map(), h: new Map() };
+
+async function syncKeys(code) {
+  const te = new TextEncoder();
+  const base = await crypto.subtle.importKey('raw', te.encode(code), 'HKDF', false, ['deriveBits']);
+  const bits = async info => new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: te.encode('mis-finanzas-sync-v1'), info: te.encode(info) }, base, 256));
+  const hx = a => [...a].map(b => b.toString(16).padStart(2, '0')).join('');
+  return {
+    enc: await crypto.subtle.importKey('raw', await bits('enc'), 'AES-GCM', false, ['encrypt', 'decrypt']),
+    mac: await crypto.subtle.importKey('raw', await bits('mac'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']),
+    auth: `${hx(await bits('vault'))}.${hx(await bits('auth'))}`,
+  };
+}
+const keysFor = code => { if (syncKeysFor !== code) { syncKeysFor = code; syncKeysP = syncKeys(code); memo.id.clear(); memo.h.clear(); } return syncKeysP; };
+const b64u = buf => b64(buf).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const hmac = async (keys, s) => b64u(await crypto.subtle.sign('HMAC', keys.mac, new TextEncoder().encode(s))).slice(0, 32);
+async function idOf(keys, k) { let v = memo.id.get(k); if (!v) { v = await hmac(keys, 'id:' + k); memo.id.set(k, v); } return v; }
+async function hashOf(keys, k, json) { const m = memo.h.get(k); if (m && m.json === json) return m.h; const h = await hmac(keys, 'h:' + json); memo.h.set(k, { json, h }); return h; }
+async function sealItem(keys, payload) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, keys.enc, new TextEncoder().encode(JSON.stringify(payload)));
+  return b64(iv) + '.' + b64(ct);
+}
+async function openItem(keys, data) {
+  const [iv, ct] = data.split('.');
+  return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(iv) }, keys.enc, unb64(ct))));
+}
+async function syncApi(keys, method, path, body) {
+  const r = await fetch(SYNC_URL + path, {
+    method, cache: 'no-store', body: body ? JSON.stringify(body) : undefined,
+    headers: { Authorization: 'Bearer ' + keys.auth, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+  });
+  if (!r.ok) throw new Error(r.status === 401 ? 'auth' : 'http');
+  return r.json();
+}
+function syncMeta(code) {
+  try { const m = JSON.parse(localStorage.getItem(SYNC_META)); if (m && m.code === code && m.shadow) return m; } catch {}
+  return { code, seq: 0, shadow: {} };
+}
+const putMeta = m => { try { localStorage.setItem(SYNC_META, JSON.stringify(m)); } catch {} };
+// Registros que se sincronizan, por clave estable ("tx:<id>", "cfg"…)
+function syncItems() {
+  const m = new Map();
+  for (const [kind, key] of Object.entries(SYNC_ARR)) for (const x of state[key]) {
+    if (!x.id) x.id = uid();
+    m.set(`${kind}:${x.id}`, x);
+  }
+  m.set('cfg', { cats: state.cats, currency: state.currency, opening: state.opening, goalsInAvail: state.goalsInAvail });
+  return m;
+}
+function applyItem(p) {
+  if (p.k === 'cfg') {
+    if (!p.del && p.v) for (const f of ['cats', 'currency', 'opening', 'goalsInAvail']) if (f in p.v) state[f] = p.v[f];
+    return;
+  }
+  const at = p.k.indexOf(':'), arr = state[SYNC_ARR[p.k.slice(0, at)]], id = p.k.slice(at + 1);
+  if (!arr) return;
+  const i = arr.findIndex(x => x.id === id);
+  if (p.del) { if (i >= 0) arr.splice(i, 1); } else if (i >= 0) arr[i] = p.v; else arr.push(p.v);
+}
+
+/* Baja lo nuevo del servidor y sube lo cambiado aquí. Si un registro cambió en
+   los dos lados a la vez, gana el de este dispositivo (se sube justo después). */
+async function syncNow(opts = {}) {
+  if (!state || !state.syncCfg || !navigator.onLine) return;
+  if (syncBusy) { syncAgain = true; return; }
+  syncBusy = true;
+  const code = state.syncCfg.code;
+  try {
+    const keys = await keysFor(code);
+    const meta = syncMeta(code);
+    const localHash = async () => {
+      const out = new Map();
+      for (const [k, v] of syncItems()) out.set(await idOf(keys, k), { k, v, h: await hashOf(keys, k, JSON.stringify(v)) });
+      return out;
+    };
+    // 1) Bajar (al crear la copia del servidor aún no hay nada que bajar)
+    let local = await localHash(), applied = 0;
+    while (!opts.create) {
+      const r = await syncApi(keys, 'GET', `/v1/items?since=${meta.seq}`);
+      for (const it of r.items) {
+        let p = null;
+        try { p = await openItem(keys, it.data); } catch {}
+        if (p && p.k) {
+          const cur = local.get(it.id), curH = cur ? cur.h : TOMB;
+          const remoteH = p.del ? TOMB : await hmac(keys, 'h:' + JSON.stringify(p.v));
+          if ((meta.shadow[it.id]?.[0] || TOMB) === curH && remoteH !== curH) {
+            applyItem(p); applied++;
+            if (p.del) local.delete(it.id); else local.set(it.id, { k: p.k, v: p.v, h: remoteH });
+          }
+          meta.shadow[it.id] = [remoteH, p.k];
+        }
+        meta.seq = Math.max(meta.seq, it.seq);
+      }
+      if (!r.more) break;
+    }
+    if (applied) {
+      const cfg = state.syncCfg;
+      state = normalize(state); state.syncCfg = cfg;
+      local = await localHash();
+    }
+    // 2) Subir
+    const push = [];
+    for (const [id, x] of local) if (meta.shadow[id]?.[0] !== x.h) push.push({ id, h: x.h, k: x.k, p: { k: x.k, v: x.v } });
+    for (const [id, [h, k]] of Object.entries(meta.shadow)) if (h !== TOMB && !local.has(id)) push.push({ id, h: TOMB, k, p: { k, del: 1 } });
+    for (let i = 0; i < push.length; i += 400) {
+      const part = push.slice(i, i + 400);
+      const items = await Promise.all(part.map(async x => ({ id: x.id, data: await sealItem(keys, x.p) })));
+      const r = await syncApi(keys, 'POST', '/v1/items', { items });
+      for (const x of part) meta.shadow[x.id] = [x.h, x.k];
+      if (r.seq - items.length === meta.seq) meta.seq = r.seq;   // nadie más subió entre medio
+    }
+    if (state.syncCfg && state.syncCfg.code === code) putMeta(meta);
+    Object.assign(syncStatus, { ok: true, at: Date.now(), err: '' });
+    if (applied) {
+      syncQuiet = true; save(); syncQuiet = false;
+      render();
+      toast('Actualizado con tu otro dispositivo');
+    }
+  } catch (e) {
+    Object.assign(syncStatus, { ok: false, err: e.message === 'auth' ? 'auth' : 'net' });
+  } finally {
+    syncBusy = false;
+    if (syncAgain) { syncAgain = false; scheduleSync(300); }
+    // El estado en Ajustes solo se redibuja si cambió (para no cortar lo que se esté escribiendo)
+    const st = $('sync-st');
+    if (st && st.textContent !== syncStatusTxt()) st.textContent = syncStatusTxt();
+  }
+}
+function scheduleSync(ms) {
+  if (!state || !state.syncCfg) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncNow, ms);
+}
+function startSync() {
+  if (syncPoll || !state || !state.syncCfg) return;
+  syncPoll = setInterval(() => { if (!document.hidden) syncNow(); }, 5000);
+  syncNow();
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleSync(200); });
+window.addEventListener('online', () => scheduleSync(200));
+const syncStatusTxt = () => syncStatus.err === 'auth' ? 'Copia del servidor borrada' : syncStatus.ok === false ? 'Sin conexión' : syncStatus.at ? 'Al día' : 'Conectando…';
+
+function openSyncSheet() {
+  if (state.syncCfg) return openSyncOnSheet();
+  openSheet(`
+    <div class="sheet-head"><button class="link" data-close>Cerrar</button><h3>Sincronizar</h3><span style="width:60px"></span></div>
+    <div style="text-align:center;font-size:44px;margin:4px 0 6px">🔄</div>
+    <p style="margin:0 0 16px;color:var(--text-2);text-align:center">Usa la app en tu iPhone y en tu computador con los mismos datos. Lo que cambies en uno aparece en el otro en segundos.</p>
+    <div class="card" style="background:var(--surface-2);margin-bottom:12px;font-size:14px;color:var(--text-2)">🔐 Todo viaja <b>cifrado</b> con un código que solo tú tienes. El servidor guarda datos ilegibles, sin tu nombre ni tu correo.</div>
+    <button class="btn primary block" id="sy-new">Empezar en este dispositivo</button>
+    <p class="hint" style="margin:6px 4px 14px">Hazlo en el dispositivo que ya tiene tus datos (tu iPhone). Te dará un código.</p>
+    <button class="btn block" id="sy-join-open">Ya tengo un código</button>
+    <div id="sy-join" hidden>
+      <div class="field" style="margin-top:12px"><label for="sy-code">Código de sincronización</label>
+        <input id="sy-code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" style="font-family:ui-monospace,Menlo,monospace;letter-spacing:1px"></div>
+      <button class="btn primary block" id="sy-join-go">Conectar</button>
+      <p class="hint" style="margin-top:6px">Los datos de este dispositivo se reemplazan por los de tu otro dispositivo.</p>
+    </div>
+  `, sh => {
+    sh.querySelector('#sy-join-open').onclick = () => { sh.querySelector('#sy-join').hidden = false; sh.querySelector('#sy-code').focus(); };
+    sh.querySelector('#sy-new').onclick = async () => {
+      const b = sh.querySelector('#sy-new'); b.disabled = true; b.textContent = 'Preparando…';
+      state.syncCfg = { code: newSyncCode() };
+      putMeta({ code: state.syncCfg.code, seq: 0, shadow: {} });
+      syncQuiet = true; await save(); syncQuiet = false;
+      await syncNow({ create: true });
+      if (!syncStatus.ok) {
+        state.syncCfg = null; syncQuiet = true; await save(); syncQuiet = false;
+        b.disabled = false; b.textContent = 'Empezar en este dispositivo';
+        return toast('No se pudo conectar. Revisa tu internet e inténtalo de nuevo');
+      }
+      startSync(); render();
+      openSyncOnSheet(true);
+    };
+    sh.querySelector('#sy-join-go').onclick = async () => {
+      const code = cleanCode(sh.querySelector('#sy-code').value);
+      if (!validCode(code)) return toast('Revisa el código: son 24 letras y números');
+      const b = sh.querySelector('#sy-join-go'); b.disabled = true; b.textContent = 'Conectando…';
+      try {
+        const keys = await keysFor(code);
+        const items = []; let seq = 0;
+        for (;;) {
+          const r = await syncApi(keys, 'GET', `/v1/items?since=${seq}`);
+          items.push(...r.items); seq = r.items.length ? r.items[r.items.length - 1].seq : seq;
+          if (!r.more) break;
+        }
+        if (!items.length) throw new Error('empty');
+        if (state.txs.length && !confirm(`Este dispositivo tiene ${state.txs.length} movimientos. Se reemplazarán por los de tu otro dispositivo. ¿Continuar?`)) { b.disabled = false; b.textContent = 'Conectar'; return; }
+        const s = { accounts: [], txs: [], recs: [], goals: [], reserves: [] }, shadow = {};
+        const prevState = state; state = s;
+        for (const it of items) {
+          const p = await openItem(keys, it.data);
+          applyItem(p);
+          shadow[it.id] = [p.del ? TOMB : await hmac(keys, 'h:' + JSON.stringify(p.v)), p.k];
+        }
+        state = normalize({ ...s, lastAcc: prevState.lastAcc, lastBackup: prevState.lastBackup, syncCfg: { code } });
+        putMeta({ code, seq, shadow });
+        syncQuiet = true; await save(); syncQuiet = false;
+        closeSheet(); startSync(); setTab('home');
+        toast('¡Conectado! Ya tienes los mismos datos');
+      } catch (e) {
+        b.disabled = false; b.textContent = 'Conectar';
+        toast(e.message === 'empty' || e.message === 'auth' ? 'No encontré datos con ese código' : 'No se pudo conectar. Revisa tu internet');
+      }
+    };
+  });
+}
+function openSyncOnSheet(fresh) {
+  const code = state.syncCfg.code;
+  openSheet(`
+    <div class="sheet-head"><button class="link" data-close>Cerrar</button><h3>Sincronizar</h3><span style="width:60px"></span></div>
+    ${fresh ? `<div style="text-align:center;font-size:44px;margin:4px 0 6px">✅</div><p style="margin:0 0 14px;text-align:center"><b>Listo.</b> Ahora conecta tu otro dispositivo con este código:</p>` : `
+      <div class="row-set" style="border-radius:12px;background:var(--surface-2);margin-bottom:12px"><span>Estado</span><span class="${syncStatus.ok === false ? 'over' : 'pos'}">${esc(syncStatusTxt())}</span></div>`}
+    <div class="card" style="background:var(--surface-2);text-align:center;margin-bottom:12px">
+      <div class="muted" style="font-size:13px;margin-bottom:6px">Tu código de sincronización</div>
+      <div id="sy-code-v" style="font-family:ui-monospace,Menlo,monospace;font-size:19px;font-weight:700;letter-spacing:1px;word-break:break-all">${fresh ? esc(fmtCode(code)) : '<span class="muted" style="font-size:15px;letter-spacing:0">Oculto · toca Mostrar</span>'}</div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        ${fresh ? '' : `<button class="btn" style="flex:1;min-height:40px" id="sy-show">Mostrar</button>`}
+        <button class="btn" style="flex:1;min-height:40px" id="sy-copy">Copiar</button>
+      </div>
+    </div>
+    <div class="card" style="background:var(--surface-2);margin-bottom:12px;font-size:14px">
+      <b style="display:block;margin-bottom:6px">En tu otro dispositivo:</b>
+      ${stepsHtml(['Abre la app → <b>Ajustes → Sincronizar</b>.', 'Toca <b>Ya tengo un código</b> y escribe este código.'])}
+      <span class="muted" style="font-size:13px">Guárdalo en un lugar seguro (por ejemplo, en tus notas). Quien lo tenga puede ver tus datos.</span>
+    </div>
+    ${fresh ? `<button class="btn primary block" data-close>Entendido</button>` : `
+      <button class="btn block" id="sy-now">Sincronizar ahora</button>
+      <button class="btn danger block" id="sy-off">Dejar de sincronizar este dispositivo</button>
+      <button class="btn danger block" id="sy-wipe">Borrar la copia del servidor</button>
+      <p class="hint" style="margin-top:6px">Dejar de sincronizar conserva tus datos aquí. Borrar la copia elimina lo guardado en el servidor; tus dispositivos conservan sus datos.</p>`}
+  `, sh => {
+    const show = sh.querySelector('#sy-show');
+    if (show) show.onclick = () => { sh.querySelector('#sy-code-v').textContent = fmtCode(code); show.remove(); };
+    sh.querySelector('#sy-copy').onclick = async () => {
+      try { await navigator.clipboard.writeText(fmtCode(code)); toast('Código copiado'); } catch { toast('No se pudo copiar'); }
+    };
+    const now = sh.querySelector('#sy-now');
+    if (now) now.onclick = async () => { now.disabled = true; await syncNow(); toast(syncStatus.ok ? 'Sincronizado' : 'Sin conexión'); openSyncOnSheet(); };
+    const stop = async () => {
+      clearInterval(syncPoll); syncPoll = null;
+      state.syncCfg = null; try { localStorage.removeItem(SYNC_META); } catch {}
+      syncQuiet = true; await save(); syncQuiet = false;
+      Object.assign(syncStatus, { ok: null, at: 0, err: '' });
+    };
+    const off = sh.querySelector('#sy-off');
+    if (off) off.onclick = async () => {
+      if (!confirm('Este dispositivo dejará de sincronizarse. Tus datos se quedan aquí. ¿Continuar?')) return;
+      await stop(); closeSheet(); render(); toast('Sincronización desactivada en este dispositivo');
+    };
+    const wipe = sh.querySelector('#sy-wipe');
+    if (wipe) wipe.onclick = async () => {
+      if (!confirm('Se borrará la copia cifrada del servidor y tus otros dispositivos dejarán de sincronizarse. Los datos de cada dispositivo se conservan. ¿Borrar?')) return;
+      try { await syncApi(await keysFor(code), 'DELETE', '/v1/vault'); } catch { return toast('No se pudo borrar. Revisa tu internet'); }
+      await stop(); closeSheet(); render(); toast('Copia del servidor borrada');
+    };
+  });
+}
+
+/* =========================================================
    Arranque
    ========================================================= */
 function boot() {
@@ -3429,6 +3724,7 @@ function boot() {
   if (pruneReserves()) save();
   $('app').hidden = false;
   setTab(tab);
+  startSync();
   if (n) toast(`Se registraron ${n} movimiento${n === 1 ? '' : 's'} recurrente${n === 1 ? '' : 's'}`);
 }
 

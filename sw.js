@@ -1,6 +1,6 @@
 // Guarda la app en caché para que funcione sin internet.
 // Sube VERSION cada vez que cambies index.html para que el iPhone tome la nueva versión.
-const VERSION = 'finanzas-v18';
+const VERSION = 'finanzas-v19';
 // Si cambias el ícono, ponle un nombre de archivo nuevo: Safari guarda en caché el anterior.
 const FILES = ['./', './index.html', './manifest.webmanifest', './icons/negro-180.png', './icons/negro-192.png', './icons/negro-512.png'];
 
@@ -19,6 +19,7 @@ self.addEventListener('activate', e => {
 // Red primero (para recibir actualizaciones), caché si no hay conexión.
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  if (new URL(e.request.url).origin !== location.origin) return;   // p. ej. el servidor de sincronización: directo, sin caché
   e.respondWith(
     // no-cache: siempre pregunta al servidor si hay versión nueva (si hay internet)
     fetch(e.request, { cache: 'no-cache' })
