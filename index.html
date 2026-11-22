@@ -1072,7 +1072,9 @@ const rightNote = txt => `<span class="muted" style="font-size:13px;font-weight:
 const sumAmt = list => list.reduce((s, x) => s + x.amount, 0);
 
 /* Disponible para gastar: lo que hay en tus cuentas menos lo apartado y lo ahorrado en metas */
-const goalsSaved = () => state.goalsInAvail ? state.goals.reduce((s, g) => s + (+g.saved || 0), 0) : 0;
+// g.extra: parte de la meta que no salió de tu disponible (p. ej. rendimientos del bolsillo del banco)
+const goalExtra = g => Math.min(Math.max(0, +g.extra || 0), Math.max(0, +g.saved || 0));
+const goalsSaved = () => state.goalsInAvail ? state.goals.reduce((s, g) => s + Math.max(0, (+g.saved || 0) - goalExtra(g)), 0) : 0;
 const openingPrompt = txt => `<button class="avail" data-opening><span class="top"><span>🏦 ${txt}</span><b style="color:var(--link)">›</b></span></button>`;
 // Caja con el dinero de tus cuentas el día `ref` (tocarla abre los saldos iniciales).
 // Hoy descuenta lo apartado y lo ahorrado en metas. head: incluir la fila con el total.
@@ -1797,6 +1799,7 @@ function goalBar(g) {
     <div><div class="top"><b>${esc(g.name)}</b><span class="num">${Math.floor(pct)}%</span></div>
     <div class="track"><div class="fill goal" style="width:${pct}%"></div></div></div>
     <div class="meta"><span class="num">${esc(money(g.saved))} de ${esc(money(g.target))}</span><span>${note}</span></div>
+    ${goalExtra(g) ? `<div class="meta" style="margin-top:2px"><span>✨ ${esc(money(goalExtra(g)))} son extra · no se restan de tu disponible</span></div>` : ''}
   </div>`;
 }
 function renderGoals() {
@@ -2600,6 +2603,7 @@ function openContribSheet(goal, sign) {
     <div class="sheet-head"><button class="link" data-close>Cancelar</button><h3>${sign > 0 ? 'Aportar a' : 'Retirar de'} ${esc(goal.emoji)} ${esc(goal.name)}</h3><span style="width:70px"></span></div>
     ${amountField('')}
     <p class="hint" style="text-align:center">Llevas ${esc(money(goal.saved))} de ${esc(money(goal.target))}</p>
+    ${sign > 0 ? `<label class="switch-row"><span>✨ Dinero extra<small>Rendimientos, intereses o un regalo que no salió de tu disponible. Suma a la meta sin restarse de lo que puedes gastar.</small></span><input type="checkbox" class="switch" id="c-extra"></label>` : ''}
     <button class="btn primary block" id="c-save">${sign > 0 ? 'Aportar' : 'Retirar'}</button>
   `, sh => {
     const amt = wireAmount(sh);
@@ -2608,11 +2612,15 @@ function openContribSheet(goal, sign) {
       let v = parseAmount(amt.value);
       if (!(v > 0)) return toast('Escribe un monto');
       const g = state.goals.find(x => x.id === goal.id);
+      const extra = sign > 0 && sh.querySelector('#c-extra').checked;
       if (sign < 0) v = Math.min(v, g.saved);
+      const ex = goalExtra(g);
       g.saved = Math.max(0, g.saved + sign * v);
-      (g.history = g.history || []).push({ date: today(), amount: sign * v });
+      // Al aportar extra sube la parte extra; al retirar se usa primero lo que salió de tu disponible
+      g.extra = extra ? ex + v : Math.min(ex, g.saved);
+      (g.history = g.history || []).push({ date: today(), amount: sign * v, ...(extra ? { extra: true } : {}) });
       save(); closeSheet(); render();
-      toast(g.saved >= g.target ? '🎉 ¡Meta cumplida!' : sign > 0 ? 'Aporte registrado' : 'Retiro registrado');
+      toast(g.saved >= g.target ? '🎉 ¡Meta cumplida!' : extra ? 'Extra registrado · tu disponible no cambia' : sign > 0 ? 'Aporte registrado' : 'Retiro registrado');
     };
   });
 }
