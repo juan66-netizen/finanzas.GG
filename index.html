@@ -424,6 +424,67 @@ svg.chart .vlab { fill: var(--text-2); font-weight: 650; }
 .install-hint .del { margin: -6px -8px 0 auto; }
 @media (display-mode: standalone) { .install-hint { display: none !important; } }
 @media (min-width: 700px) { main { padding-top: 8px; } }
+/* ---------- Computador: menú lateral, Inicio en columnas y formularios como ventana ---------- */
+.brand, .fab-t { display: none; }
+@media (min-width: 1024px) {
+  :root { --side-w: 248px; }
+  body { background:
+    radial-gradient(900px 520px at 78% -8%, color-mix(in srgb, var(--hero-a) 70%, transparent), transparent 70%),
+    radial-gradient(700px 500px at 30% 110%, color-mix(in srgb, var(--hero-a) 35%, transparent), transparent 70%),
+    var(--bg); background-attachment: fixed; }
+  .app { max-width: none; padding-left: var(--side-w); }
+  header.top, main { max-width: 1480px; margin: 0 auto; }
+  header.top { padding: 26px 36px 14px; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; position: static; flex-wrap: wrap; }
+  header.top h1 { font-size: 32px; margin-right: auto; }
+  header.top .seg { margin: 0; width: 210px; }
+  main { padding: 6px 36px 56px; }
+  .card, .list { border-radius: 22px; }
+  .card { padding: 20px; margin-bottom: 18px; box-shadow: 0 10px 30px rgba(0,0,0,.18); }
+  .hero .big { font-size: 44px; }
+
+  /* Menú lateral */
+  nav.tabs { top: 0; bottom: 0; right: auto; width: var(--side-w); height: auto; padding: 22px 14px; border-top: 0; border-right: 1px solid var(--border);
+    flex-direction: column; justify-content: flex-start; background: color-mix(in srgb, var(--tabbar) 82%, transparent); }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px; margin-bottom: 84px; font-weight: 750; font-size: 18px; letter-spacing: -.01em; }
+  .brand img { width: 34px; height: 34px; border-radius: 10px; }
+  nav.tabs .inner { flex-direction: column; flex: 1; gap: 4px; max-width: none; }
+  nav.tabs button { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; padding: 0 14px; min-height: 46px; border-radius: 14px; font-size: 15px; color: var(--text-2); }
+  nav.tabs button svg { width: 22px; height: 22px; }
+  nav.tabs button:hover { background: var(--soft); }
+  nav.tabs button[aria-selected="true"] { color: var(--tab-on); background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--accent) 4%, transparent)); }
+  nav.tabs button[data-tab="settings"] { margin-top: auto; }
+  .fab { left: 14px; right: auto; top: 82px; bottom: auto; width: calc(var(--side-w) - 28px); height: 48px; border-radius: 14px;
+    font-size: 15px; font-weight: 700; gap: 8px; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+  .fab[hidden] { display: none; }
+  .fab .pl { font-size: 24px; font-weight: 400; line-height: 1; }
+  .fab-t { display: inline; }
+  .fab:hover { filter: brightness(1.06); }
+
+  /* Inicio: tarjetas en columnas (se reparten para que queden parejas) */
+  .dash { display: flex; gap: 18px; align-items: flex-start; }
+  .dcol { flex: 1; min-width: 0; }
+  #v-home > .install-hint { display: none; }
+
+  /* Metas: cuadrícula */
+  #v-goals { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; align-items: start; }
+  #v-goals > .card { margin: 0; }
+  #v-goals > .hero { grid-column: 1 / -1; }
+  #v-goals > .hero .switch-row { max-width: 560px; }
+
+  /* Movimientos y Ajustes: ancho cómodo de lectura */
+  #v-tx { max-width: 1040px; }
+  #v-settings { max-width: 760px; }
+  .item:hover, button.row-set:hover, .mini:hover { background: var(--soft); }
+
+  /* Formularios: ventana centrada en vez de hoja inferior */
+  .sheet { inset: 0; margin: auto; height: fit-content; max-width: 560px; max-height: 86vh; border-radius: 22px; border: 1px solid var(--border);
+    padding: 18px 22px 22px; box-shadow: 0 30px 80px rgba(0,0,0,.5); opacity: 0; transform: translateY(14px) scale(.98); transition: transform .22s cubic-bezier(.2,.8,.2,1), opacity .18s; }
+  .sheet-wrap.open .sheet { opacity: 1; }
+  .grabber { display: none; }
+  .amount input { max-width: 420px; }
+  .toast { bottom: 32px; margin-left: calc(var(--side-w) / 2); }
+}
+@media (min-width: 1024px) and (hover: hover) { .card { transition: border-color .15s; } .card:hover { border-color: color-mix(in srgb, var(--text) 16%, transparent); } }
 </style>
 </head>
 <body>
@@ -473,9 +534,10 @@ svg.chart .vlab { fill: var(--text-2); font-weight: 650; }
     <section id="v-settings" class="view" hidden></section>
   </main>
 
-  <button class="fab" id="fab" aria-label="Agregar">+</button>
+  <button class="fab" id="fab" aria-label="Agregar"><span class="pl">+</span><span class="fab-t" id="fab-t">Nuevo movimiento</span></button>
 
   <nav class="tabs" role="tablist">
+    <div class="brand"><img src="icons/negro-180.png" alt="">Mis Finanzas</div>
     <div class="inner">
       <button role="tab" data-tab="home" aria-selected="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>Inicio</button>
@@ -992,6 +1054,7 @@ function render() {
   $('period').hidden = !showPeriod;
   document.querySelectorAll('#period button').forEach(b => b.setAttribute('aria-pressed', b.dataset.p === period));
   $('fab').hidden = tab === 'settings';
+  $('fab-t').textContent = tab === 'goals' ? 'Nueva meta' : tab === 'tx' && txMode === 'rec' ? 'Nuevo fijo' : 'Nuevo movimiento';
   if (tab === 'home') renderHome();
   if (tab === 'tx') renderTx();
   if (tab === 'goals') renderGoals();
@@ -1054,17 +1117,47 @@ function renderHome() {
       }).join('') + `</div>`;
   }
 
-  // Widgets en el orden y con la visibilidad que eligió la persona
-  for (const w of prefs.widgets) if (w.on && WIDGET_FNS[w.id]) h += WIDGET_FNS[w.id](ctx);
+  // Widgets en el orden y con la visibilidad que eligió la persona.
+  // En computador van en columnas: cada uno a la columna más corta, así quedan parejas.
+  const cols = homeCols(), parts = [];
+  for (const w of prefs.widgets) if (w.on && WIDGET_FNS[w.id]) parts.push(WIDGET_FNS[w.id](ctx));
+  if (cols > 1) h += `<div class="dash" id="dash">${'<div class="dcol"></div>'.repeat(cols)}</div>`;
+  else h += parts.join('');
   if (!prefs.widgets.some(w => w.on)) {
     h += `<div class="card" style="text-align:center"><p class="muted" style="margin:0 0 12px">Ocultaste todos los widgets de Inicio.</p><button class="btn primary" data-customize>Elegir widgets</button></div>`;
   }
   h += `<button class="link customize" data-customize>✎ Personalizar Inicio</button>`;
 
   $('v-home').innerHTML = h;
+  if (cols > 1) {
+    const colEls = [...$('dash').children];
+    for (const html of parts) {
+      const t = document.createElement('template'); t.innerHTML = html;
+      colEls.reduce((a, b) => b.offsetHeight < a.offsetHeight ? b : a).append(t.content);
+    }
+  }
   const hide = $('hide-hint');
   if (hide) hide.onclick = () => { try { localStorage.setItem(STORE + '-hint', '1'); } catch {} $('install-hint').remove(); };
 }
+
+/* Diseño de computador (pantallas anchas): columnas de Inicio y selector Mes/Año en la cabecera */
+const wideMQ = matchMedia('(min-width: 1024px)');
+function homeCols() {
+  if (!wideMQ.matches) return 1;
+  return innerWidth >= 1640 ? 3 : 2;
+}
+let lastCols = homeCols();
+function placeLayout() {
+  const per = $('period'), wide = wideMQ.matches;
+  if (wide && per.parentNode !== document.querySelector('header.top')) $('msw').before(per);
+  if (!wide && per.parentNode.tagName !== 'MAIN') document.querySelector('main').prepend(per);
+}
+placeLayout();
+wideMQ.addEventListener('change', () => { placeLayout(); render(); });
+addEventListener('resize', () => {
+  const c = homeCols();
+  if (c !== lastCols) { lastCols = c; if (tab === 'home') render(); }
+});
 
 const card = (title, body, right = '') => `<div class="card"><h2><span>${title}</span>${right}</h2>${body}</div>`;
 const emptyMsg = msg => `<div class="empty">${msg}</div>`;
